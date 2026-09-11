@@ -1,133 +1,104 @@
-import {
-  PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend
-} from "recharts";
-import { SectionHeader, ProgressBar, Card } from "../../../components/shared";
-import { FONT_HEADING, FONT_MONO } from "../../../types";
-import { nutritionData, NUTR_COLORS, knowledgeTrend } from "../../../data/mock-data";
+import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, Brain, CheckCircle2, RefreshCw, Users } from "lucide-react";
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Badge, Card, ErrorState, KPICard, LoadingState, SectionHeader } from "../../../components/shared";
+import { indicadoresService, type PccIndicatorResponse } from "../../../services/indicadores.service";
 
-const H = FONT_HEADING;
-const MONO = FONT_MONO;
+const COLORS = ["#dc2626", "#0f766e"];
+const tooltipStyle = { borderRadius: 12, border: "1px solid #dbe7e1", boxShadow: "0 8px 24px rgba(23,60,54,.12)" };
+
+function reason(value: string | null) {
+  if (value === "SIN_RESULTADOS_VALIDOS") return "No existen resultados oficiales con estado de validez y nivel de conocimiento calculado.";
+  return value?.replaceAll("_", " ").toLocaleLowerCase() || "El backend no informó el motivo.";
+}
 
 export default function AdminConocimientoPage() {
+  const [data, setData] = useState<PccIndicatorResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setData(await indicadoresService.pcc());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo cargar el indicador PCC.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  if (loading) return <LoadingState label="Cargando análisis de conocimiento..." />;
+  if (error || !data) return <ErrorState message={error || "Respuesta vacía del backend."} />;
+
+  const available = data.estadoDisponibilidad === "DISPONIBLE" && data.porcentajePcc != null && data.totalEvaluadosValidos > 0;
+  const otherLevels = Math.max(data.totalEvaluadosValidos - data.totalBajoConocimiento, 0);
+  const chartData = [
+    { name: "Bajo conocimiento", value: data.totalBajoConocimiento },
+    { name: "Otros niveles", value: otherLevels },
+  ];
+
   return (
-    <div>
+    <div className="space-y-5">
       <SectionHeader
-        title="Análisis de conocimiento nutricional"
-        subtitle="Distribución del nivel de comprensión sobre hábitos alimenticios y suplementación"
+        title="Conocimiento nutricional"
+        subtitle="Análisis del PCC oficial y de la cobertura de evaluaciones válidas."
+        action={<button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><RefreshCw size={14} /> Actualizar</button>}
       />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
-        <div className="bg-rose-500 rounded-xl p-5 text-white">
-          <div className="text-3xl font-bold mb-1" style={H}>35%</div>
-          <div className="text-rose-100 text-sm font-medium">Nivel Bajo</div>
-          <div className="text-rose-200/70 text-xs mt-0.5">87 clientes</div>
-        </div>
-        <div className="bg-amber-500 rounded-xl p-5 text-white">
-          <div className="text-3xl font-bold mb-1" style={H}>40%</div>
-          <div className="text-amber-100 text-sm font-medium">Nivel Medio</div>
-          <div className="text-amber-200/70 text-xs mt-0.5">99 clientes</div>
-        </div>
-        <div className="bg-emerald-500 rounded-xl p-5 text-white">
-          <div className="text-3xl font-bold mb-1" style={H}>25%</div>
-          <div className="text-emerald-100 text-sm font-medium">Nivel Alto</div>
-          <div className="text-emerald-200/70 text-xs mt-0.5">62 clientes</div>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <KPICard icon={Brain} title="PCC oficial" value={data.porcentajePcc == null ? "—" : `${data.porcentajePcc.toFixed(1)}%`} sub="Clientes con bajo conocimiento" iconBg="bg-indigo-600" />
+        <KPICard icon={Users} title="Evaluados válidos" value={String(data.totalEvaluadosValidos)} sub="Último resultado válido por cliente" iconBg="bg-teal-600" />
+        <KPICard icon={AlertTriangle} title="Bajo conocimiento" value={String(data.totalBajoConocimiento)} sub="Clientes que requieren atención" iconBg="bg-rose-600" />
       </div>
 
-      <div className="grid grid-cols-5 gap-4 mb-4">
-        {/* Donut */}
-        <Card className="col-span-2 p-6">
-          <h3 className="font-semibold text-slate-800 text-sm mb-4" style={H}>Distribución general</h3>
-          <div className="flex flex-col items-center">
-            <div className="relative">
-              <ResponsiveContainer width={200} height={200}>
+      {!available && (
+        <Card className="border-l-4 border-l-amber-400 p-5">
+          <div className="flex gap-3"><AlertTriangle className="mt-0.5 shrink-0 text-amber-500" size={20} /><div><h2 className="font-semibold text-slate-800">PCC no calculable</h2><p className="mt-1 text-sm text-slate-500">{reason(data.motivoNoDisponible)}</p></div></div>
+        </Card>
+      )}
+
+      <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+        <Card className="p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h2 className="font-semibold text-slate-900">Distribución de la muestra</h2><p className="mt-1 text-sm text-slate-500">Clientes con bajo conocimiento frente a los demás niveles.</p></div>
+            <Badge label={available ? "Muestra disponible" : "Sin muestra"} variant={available ? "success" : "warning"} />
+          </div>
+          {available ? (
+            <div className="relative mt-3 h-[330px] min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
-                    data={nutritionData}
-                    cx="50%" cy="50%"
-                    innerRadius={60} outerRadius={90}
-                    dataKey="value" strokeWidth={2} stroke="#fff"
-                  >
-                    {nutritionData.map((_, i) => <Cell key={i} fill={NUTR_COLORS[i]} />)}
+                  <Pie data={chartData} dataKey="value" cx="50%" cy="46%" innerRadius={78} outerRadius={116} paddingAngle={2} stroke="none">
+                    {chartData.map((entry, index) => <Cell key={entry.name} fill={COLORS[index]} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                  <Tooltip formatter={(value: number) => [value, "Clientes"]} contentStyle={tooltipStyle} />
+                  <Legend verticalAlign="bottom" iconType="circle" iconSize={9} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <div className="text-2xl font-bold text-slate-800" style={H}>248</div>
-                <div className="text-xs text-slate-400">clientes</div>
-              </div>
+              <div className="pointer-events-none absolute inset-x-0 top-[126px] text-center"><p className="text-4xl font-semibold text-slate-900">{data.porcentajePcc?.toFixed(1)}%</p><p className="text-xs text-slate-500">PCC oficial</p></div>
             </div>
-            <div className="flex gap-5 mt-3">
-              {nutritionData.map((d, i) => (
-                <div key={d.name} className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-full" style={{ background: NUTR_COLORS[i] }} />
-                  <span className="text-xs text-slate-500">{d.name} · <strong>{d.value}%</strong></span>
-                </div>
+          ) : (
+            <div className="mt-5 flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed bg-slate-50 px-6 text-center"><Brain className="h-10 w-10 text-slate-300" /><p className="mt-3 font-semibold text-slate-700">Sin resultados válidos</p><p className="mt-1 max-w-md text-sm text-slate-500">El gráfico aparecerá cuando el backend reconozca al menos una evaluación oficial válida.</p></div>
+          )}
+        </Card>
+
+        <div className="space-y-5">
+          <Card className="overflow-hidden">
+            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Composición del indicador</h2></div>
+            <div className="divide-y divide-slate-100">
+              {chartData.map((row, index) => (
+                <div key={row.name} className="flex items-center justify-between gap-3 px-5 py-4"><div className="flex items-center gap-3"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: COLORS[index] }} /><span className="text-sm text-slate-600">{row.name}</span></div><span className="text-lg font-semibold text-slate-900">{row.value}</span></div>
               ))}
             </div>
-          </div>
-        </Card>
-
-        {/* Details */}
-        <Card className="col-span-3 p-5">
-          <h3 className="font-semibold text-slate-800 text-sm mb-4" style={H}>Desglose por nivel</h3>
-          <div className="space-y-4">
-            {[
-              { nivel: "Bajo", val: 35, total: 87, color: "rose", desc: "Clientes con escaso conocimiento sobre macronutrientes, suplementación y planificación alimenticia." },
-              { nivel: "Medio", val: 40, total: 99, color: "amber", desc: "Clientes con conocimiento básico que pueden beneficiarse de orientación específica." },
-              { nivel: "Alto", val: 25, total: 62, color: "emerald", desc: "Clientes con comprensión sólida de la nutrición y uso adecuado de suplementos." },
-            ].map(r => (
-              <div key={r.nivel} className={`p-4 rounded-lg border ${r.color === "rose" ? "bg-rose-50 border-rose-100" : r.color === "amber" ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`font-bold text-sm ${r.color === "rose" ? "text-rose-700" : r.color === "amber" ? "text-amber-700" : "text-emerald-700"}`}>
-                      Conocimiento {r.nivel}
-                    </span>
-                    <span className="text-xs text-slate-500">{r.total} clientes</span>
-                  </div>
-                  <span className="text-xl font-bold text-slate-800" style={MONO}>{r.val}%</span>
-                </div>
-                <ProgressBar value={r.val} color={r.color === "rose" ? "bg-rose-400" : r.color === "amber" ? "bg-amber-400" : "bg-emerald-400"} />
-                <p className="text-xs text-slate-500 mt-2">{r.desc}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
+          </Card>
+          <Card className="p-5">
+            <div className="flex gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-teal-600" size={20} /><div><h2 className="font-semibold text-slate-900">Qué dato toma PCC</h2><p className="mt-2 text-sm leading-6 text-slate-600">Usa el último <strong>ResultadoTest válido</strong> de cada cliente. Las evaluaciones diarias generadas por Gemini siguen siendo complementarias mientras el backend no las incorpore al indicador oficial.</p></div></div>
+          </Card>
+        </div>
       </div>
-
-      {/* Trend */}
-      <Card className="p-5">
-        <h3 className="font-semibold text-slate-800 text-sm mb-4" style={H}>Evolución mensual 2025</h3>
-        <ResponsiveContainer width="100%" height={180}>
-          <AreaChart data={knowledgeTrend}>
-            <defs>
-              <linearGradient id="gBajo" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="gMedio" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="gAlto" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="mes" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-            <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
-            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Area type="monotone" dataKey="bajo" stroke="#f43f5e" fill="url(#gBajo)" strokeWidth={2} name="Bajo" />
-            <Area type="monotone" dataKey="medio" stroke="#f59e0b" fill="url(#gMedio)" strokeWidth={2} name="Medio" />
-            <Area type="monotone" dataKey="alto" stroke="#10b981" fill="url(#gAlto)" strokeWidth={2} name="Alto" />
-          </AreaChart>
-        </ResponsiveContainer>
-      </Card>
     </div>
   );
 }

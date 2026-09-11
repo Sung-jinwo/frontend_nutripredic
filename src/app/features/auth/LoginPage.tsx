@@ -1,153 +1,80 @@
 import { useState } from "react";
+import { ArrowRight, Brain, ClipboardCheck, LockKeyhole } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Brain, Utensils, Pill, User, Shield } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { FONT_HEADING } from "../../types";
-import type { Role } from "../../types";
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const auth = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const emailError = submitted && (!email.trim() ? "El correo es obligatorio." : !emailPattern.test(email) ? "Escribe un correo válido." : "");
+  const passwordError = submitted && !password ? "La contraseña es obligatoria." : "";
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitted(true);
+    setError("");
+    auth.clearSessionExpired();
+    if (!email.trim() || !password || !emailPattern.test(email)) return;
+    setLoading(true);
+    try {
+      await auth.login({ email: email.trim(), password });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo iniciar sesión.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen flex" style={{ fontFamily: "'Inter', sans-serif" }}>
-      {/* Left panel */}
-      <div className="hidden lg:flex w-[52%] bg-[#0a1628] relative overflow-hidden flex-col justify-between p-12">
-        <div className="absolute inset-0 bg-gradient-to-br from-teal-900/20 via-transparent to-indigo-900/30" />
-        {/* Decorative rings */}
-        <div className="absolute -right-24 top-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full border border-white/5" />
-        <div className="absolute -right-8 top-1/2 -translate-y-1/2 w-[350px] h-[350px] rounded-full border border-white/5" />
-        <div className="absolute right-24 top-1/2 -translate-y-1/2 w-[200px] h-[200px] rounded-full border border-teal-500/10" />
-
-        {/* Logo */}
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-lg">
-            <Brain size={22} className="text-white" />
-          </div>
-          <div>
-            <div className="text-white font-bold text-base" style={FONT_HEADING}>NutriPredict</div>
-            <div className="text-teal-400 text-[11px] font-medium">Sistema de Análisis IA</div>
+    <main className="min-h-screen bg-[#f5f3ed] text-slate-900 lg:grid lg:grid-cols-[minmax(360px,0.82fr)_1.18fr]" style={{ fontFamily: "'Inter', sans-serif" }}>
+      <section className="relative hidden overflow-hidden bg-[#173c36] px-12 py-10 text-white lg:flex lg:flex-col lg:justify-between">
+        <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.35) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.35) 1px, transparent 1px)", backgroundSize: "44px 44px" }} />
+        <div className="relative flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#d8e85f] text-[#173c36]"><Brain size={20} /></div>
+          <div><div className="font-semibold tracking-tight" style={FONT_HEADING}>NutriPredict</div><div className="text-[11px] text-emerald-100/65">Registro nutricional</div></div>
+        </div>
+        <div className="relative max-w-md">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-[#d8e85f]">Tu información, en orden</p>
+          <h1 className="text-4xl font-semibold leading-[1.08] tracking-[-0.035em]" style={FONT_HEADING}>Hábitos reales.<br />Seguimiento claro.</h1>
+          <p className="mt-5 max-w-sm text-sm leading-6 text-emerald-50/70">Registra alimentación y suplementos desde una sola ficha. Las funciones predictivas se mostrarán únicamente cuando el modelo esté integrado y validado.</p>
+          <div className="mt-9 border-l border-white/20 pl-5">
+            <div className="flex gap-3"><ClipboardCheck className="mt-0.5 text-[#d8e85f]" size={17} /><div><p className="text-sm font-medium">Datos conectados </p><p className="mt-1 text-xs leading-5 text-emerald-50/55">Sin resultados simulados ni clasificaciones inventadas.</p></div></div>
           </div>
         </div>
+        <p className="relative text-[11px] text-emerald-100/45">Proyecto académico · Nutrición y tecnología</p>
+      </section>
 
-        {/* Headline */}
-        <div className="relative z-10">
-          <h1 className="text-4xl font-bold text-white leading-tight mb-4" style={FONT_HEADING}>
-            Modelo predictivo<br />basado en IA para<br />análisis nutricional
-          </h1>
-          <p className="text-slate-400 text-sm leading-relaxed max-w-xs">
-            Plataforma de inteligencia artificial para el análisis de hábitos alimenticios y consumo de suplementos en clientes.
-          </p>
+      <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
+        <div className="w-full max-w-[430px]">
+          <div className="mb-10 flex items-center gap-3 lg:hidden"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#173c36] text-[#d8e85f]"><Brain size={20} /></div><span className="font-semibold" style={FONT_HEADING}>NutriPredict</span></div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#397065]">Acceso seguro</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-slate-900" style={FONT_HEADING}>Bienvenido de nuevo</h2>
+          <p className="mt-2 text-sm text-slate-500">Ingresa con la cuenta registrada en el sistema.</p>
 
-          {/* Feature cards */}
-          <div className="mt-8 space-y-2.5">
-            {[
-              { icon: Utensils, color: "bg-emerald-500/20 text-emerald-400", title: "Análisis de hábitos alimenticios", desc: "Evaluación nutricional personalizada" },
-              { icon: Pill, color: "bg-indigo-500/20 text-indigo-400", title: "Control de suplementos", desc: "Monitoreo y seguimiento continuo" },
-              { icon: Brain, color: "bg-teal-500/20 text-teal-400", title: "Predicción con IA", desc: "Modelo Scikit-learn · Precisión 87.4%" },
-            ].map(({ icon: Icon, color, title, desc }) => (
-              <div key={title} className="flex items-center gap-3 bg-white/5 backdrop-blur-sm rounded-xl p-3.5 border border-white/8">
-                <div className={`w-8 h-8 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
-                  <Icon size={15} />
-                </div>
-                <div>
-                  <div className="text-white text-xs font-medium">{title}</div>
-                  <div className="text-slate-500 text-[11px]">{desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate>
+            {auth.sessionExpired && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Tu sesión expiró. Inicia sesión nuevamente.</div>}
+            {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+            <label className="block text-sm font-medium text-slate-700" htmlFor="login-email">Correo electrónico
+              <input id="login-email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" disabled={loading} aria-invalid={Boolean(emailError)} aria-describedby={emailError ? "login-email-error" : undefined} placeholder="nombre@correo.com" className={`mt-2 w-full rounded-xl border bg-white px-4 py-3 text-sm shadow-[0_1px_0_rgba(15,23,42,.04)] outline-none transition focus:ring-3 ${emailError ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100" : "border-slate-200 focus:border-[#397065] focus:ring-emerald-100"}`} />
+              {emailError && <span id="login-email-error" className="mt-1.5 block text-xs font-normal text-rose-600">{emailError}</span>}
+            </label>
+            <label className="block text-sm font-medium text-slate-700" htmlFor="login-password">Contraseña
+              <div className="relative mt-2"><LockKeyhole size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input id="login-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" disabled={loading} aria-invalid={Boolean(passwordError)} aria-describedby={passwordError ? "login-password-error" : undefined} placeholder="Tu contraseña" className={`w-full rounded-xl border bg-white py-3 pl-11 pr-4 text-sm shadow-[0_1px_0_rgba(15,23,42,.04)] outline-none transition focus:ring-3 ${passwordError ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100" : "border-slate-200 focus:border-[#397065] focus:ring-emerald-100"}`} /></div>
+              {passwordError && <span id="login-password-error" className="mt-1.5 block text-xs font-normal text-rose-600">{passwordError}</span>}
+            </label>
+            <button type="submit" disabled={loading} className="group flex w-full items-center justify-center gap-2 rounded-xl bg-[#173c36] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#225148] disabled:cursor-not-allowed disabled:opacity-55">{loading ? "Verificando..." : "Iniciar sesión"}<ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" /></button>
+          </form>
+          <div className="mt-7 border-t border-slate-200 pt-6 text-center text-sm text-slate-500">¿Aún no tienes una cuenta? <button onClick={() => navigate("/register")} className="font-semibold text-[#2d675c] hover:underline">Crear cuenta</button></div>
         </div>
-
-        {/* Footer */}
-        <div className="relative z-10 flex items-center gap-4 text-slate-600 text-[11px]">
-          <span>React · Spring Boot · Python · PostgreSQL</span>
-        </div>
-      </div>
-
-      {/* Right panel */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-[#f0f4fb]">
-        <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center">
-              <Brain size={18} className="text-white" />
-            </div>
-            <div className="font-bold text-slate-800" style={FONT_HEADING}>NutriPredict</div>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
-            <h2 className="text-2xl font-bold text-slate-800 mb-1" style={FONT_HEADING}>Iniciar sesión</h2>
-            <p className="text-slate-500 text-sm mb-7">Ingresa tus credenciales para acceder al sistema</p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Correo electrónico</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="correo@ejemplo.com"
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Contraseña</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent text-sm"
-                />
-              </div>
-
-              <button
-                onClick={() => auth.login("client")}
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm mt-1"
-              >
-                Iniciar sesión
-              </button>
-
-              {/* Demo separator */}
-              <div className="relative my-2">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-100" />
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-white px-3 text-[11px] text-slate-400 font-medium">Acceso demo rápido</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  onClick={() => auth.login("client")}
-                  className="flex items-center justify-center gap-2 py-2.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all text-xs font-semibold"
-                >
-                  <User size={13} />
-                  Cliente
-                </button>
-                <button
-                  onClick={() => auth.login("admin")}
-                  className="flex items-center justify-center gap-2 py-2.5 border border-indigo-200 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-all text-xs font-semibold"
-                >
-                  <Shield size={13} />
-                  Administrador
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-6 text-center">
-              <span className="text-sm text-slate-500">¿No tienes cuenta? </span>
-              <button onClick={() => navigate("/register")} className="text-sm text-teal-600 hover:text-teal-700 font-semibold">
-                Crear cuenta
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

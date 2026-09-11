@@ -2,7 +2,7 @@
 
 ## Project context
 
-**NutriPredict** — frontend prototype for an AI-powered nutrition analysis system. Exported from Figma Make, all data is mock/static (no API layer). Two user roles: `client` and `admin`.
+**NutriPredict** — frontend for an AI-powered nutrition analysis system (thesis project). Two user roles: `CLIENTE` and `ADMIN`. Backend: Spring Boot + PostgreSQL on `http://localhost:8080`. Frontend consumes real API via centralized services.
 
 ## Stack
 
@@ -30,9 +30,10 @@ src/
   app/
     App.tsx                         # BrowserRouter + AuthProvider + AppRouter
     router/AppRouter.tsx            # all routes defined here
-    context/AuthContext.tsx          # role-based auth (client/admin), no real backend
+    context/AuthContext.tsx          # role-based auth (JWT against backend)
     types/index.ts                  # shared types, View union, BREADCRUMBS map
-    data/mock-data.ts               # all static/mock data
+    services/                       # centralized HTTP clients (api, auth, client, habitos, suplementos, conocimiento)
+    data/mock-data.ts               # static/mock data (admin pages only, with "Vista demostrativa" banners)
     features/
       client/                       # client-facing pages (home, habitos, conocimiento, suplementos, analisis, historial, recomendaciones, profile)
       admin/                        # admin pages (dashboard, clientes, conocimiento, consumo, tiempo, modelo, reportes, usuarios)
@@ -52,5 +53,27 @@ src/
 - `View` type in `types/index.ts` is the single source of truth for all route identifiers; add new views there first
 - Theme tokens live in `src/styles/theme.css` as CSS custom properties — use these instead of hardcoded colors
 - `cn()` from `components/ui/utils.ts` is the class merge utility (clsx + tailwind-merge)
-- Auth is purely client-side: `useAuth()` provides `role`, `login(role)`, `logout()`
+- Auth is JWT-based: `useAuth()` provides `role`, `user`, `login()`, `register()`, `logout()`, `completeProfile()`
 - All content is in Spanish
+
+## Services & Contracts
+
+- All HTTP requests go through `src/app/services/` — do not create ad-hoc fetch calls
+- Service contracts (request/response types) must match backend exactly — verify before modifying
+- `api.ts` provides centralized `get/post/put/delete` with automatic JWT injection and 401 handling
+- Do not duplicate backend catalogs or enums locally (e.g., supplement types, units) — fetch from API
+
+## Rules (DO NOT)
+
+- Do NOT show simulated predictions, fake probabilities, or mock ML results as real
+- Do NOT calculate PCC/PCS/TPP locally — these come from backend or are not yet defined
+- Do NOT invent classification rules (e.g., "consumo Alto", "nivel Moderado") without backend validation
+- Do NOT bypass `npm run build` — it must succeed before any commit
+- Do NOT hardcode backend URLs — use `VITE_API_URL` environment variable (default: `http://localhost:8080`)
+
+## Current State (Fase 3.3 completed)
+
+- Client pages (habitos, suplementos, conocimiento, profile) consume real backend
+- Auth flow (login, register, JWT) functional against backend
+- Analysis/historial/recomendaciones pages show "not available" state — no model integrated yet
+- Admin pages use mock-data with "Vista demostrativa" banners — to be connected to real data in future phases

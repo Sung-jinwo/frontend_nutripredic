@@ -1,71 +1,20 @@
-import { Download } from "lucide-react";
-import { SectionHeader, Card, Badge } from "../../../components/shared";
-import { FONT_HEADING } from "../../../types";
-import { clientEvolution, historialRegistros } from "../../../data/mock-data";
-import { LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line, ResponsiveContainer } from "recharts";
+import { useCallback, useEffect, useState } from "react";
+import { Clock } from "lucide-react";
+import { Card, EmptyState, ErrorState, LoadingState, ProgressBar, SectionHeader } from "../../../components/shared";
+import { useAuth } from "../../../context/AuthContext";
+import { analisisPredictivoService, type ClasificacionPredictiva, type PrediccionModeloHistorialResponse } from "../../../services/analisis-predictivo.service";
+import { historialIntegradoService, type HistorialDia } from "../../../services/historial-integrado.service";
 
-const H = FONT_HEADING;
+const labels: Record<ClasificacionPredictiva, string> = { ADECUADO: "Adecuado", MEJORABLE: "Mejorable", CRITICO: "Crítico" };
+
+const executionDate = (item: PrediccionModeloHistorialResponse) => {
+  const value = item.inferredAt ?? item.fechaPrediccion;
+  return value ? new Date(value).toLocaleString("es-PE") : "No disponible";
+};
 
 export default function ClientHistorialPage() {
-  return (
-    <div>
-      <SectionHeader
-        title="Historial de Análisis"
-        subtitle="Evolución y seguimiento de tus evaluaciones"
-        action={
-          <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-slate-600 text-sm font-semibold hover:bg-slate-50">
-            <Download size={14} /> Exportar
-          </button>
-        }
-      />
-
-      <Card className="p-5 mb-4">
-        <h3 className="font-semibold text-slate-800 text-sm mb-4" style={H}>Evolución 2026</h3>
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={clientEvolution}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="mes" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-            <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} domain={[0, 100]} />
-            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="conocimiento" stroke="#14b8a6" strokeWidth={2.5} dot={{ fill: "#14b8a6", r: 4 }} name="Conocimiento nutricional" />
-            <Line type="monotone" dataKey="suplementos" stroke="#f43f5e" strokeWidth={2.5} dot={{ fill: "#f43f5e", r: 4 }} name="Consumo suplementos" />
-          </LineChart>
-        </ResponsiveContainer>
-      </Card>
-
-      <Card className="overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h3 className="font-semibold text-slate-800 text-sm" style={H}>Registros de análisis</h3>
-        </div>
-        <table className="w-full">
-          <thead>
-            <tr className="bg-slate-50">
-              {["Fecha", "Tipo", "Conocimiento nutricional", "Consumo suplementos", "Nivel general", "Variación"].map(h => (
-                <th key={h} className="px-5 py-3 text-left text-[10px] font-bold text-slate-500 uppercase tracking-widest">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {historialRegistros.map((r, i) => (
-              <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                <td className="px-5 py-3.5 text-sm text-slate-600 font-medium">{r.fecha}</td>
-                <td className="px-5 py-3.5 text-sm text-slate-600">{r.tipo}</td>
-                <td className="px-5 py-3.5">
-                  <Badge label={r.conocimiento} variant={r.conocimiento === "Alto" ? "success" : r.conocimiento === "Medio" ? "warning" : "danger"} />
-                </td>
-                <td className="px-5 py-3.5">
-                  <Badge label={r.consumo === "Muy alto" ? "Muy alto" : r.consumo} variant={r.consumo === "Bajo" ? "success" : r.consumo === "Moderado" ? "warning" : "danger"} />
-                </td>
-                <td className="px-5 py-3.5">
-                  <Badge label={r.nivel} variant={r.nivel === "Favorable" ? "success" : r.nivel === "Moderado" ? "warning" : "danger"} />
-                </td>
-                <td className="px-5 py-3.5 text-xs font-medium text-slate-500">{r.cambio}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </div>
-  );
+  const { user } = useAuth(); const [items, setItems] = useState<PrediccionModeloHistorialResponse[]>([]); const [dias, setDias] = useState<HistorialDia[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const load = useCallback(async () => { if (!user?.clienteId) return; setLoading(true); setError(""); try { const hasta = new Date(); const desde = new Date(hasta); desde.setDate(desde.getDate() - 29); const [predicciones, integrado] = await Promise.all([analisisPredictivoService.listByCliente(user.clienteId), historialIntegradoService.obtener(user.clienteId, desde.toLocaleDateString("sv-SE"), hasta.toLocaleDateString("sv-SE"))]); setItems(predicciones); setDias(integrado.dias.filter((dia) => dia.resumen.consumido.registrosAlimento > 0 || dia.resumen.consumido.registrosSuplemento > 0).reverse()); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo cargar el historial."); } finally { setLoading(false); } }, [user?.clienteId]);
+  useEffect(() => { void load(); }, [load]);
+  return <div><SectionHeader title="Historial" subtitle="Análisis predictivos y registros nutricionales obtenidos del historial integrado del backend." action={<button onClick={() => void load()} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Actualizar</button>} />{loading ? <LoadingState label="Cargando historial..." /> : error ? <ErrorState message={error} /> : items.length === 0 && dias.length === 0 ? <EmptyState icon={Clock} title="Sin actividad registrada" description="Tus análisis y registros nutricionales aparecerán aquí." /> : <div className="space-y-6">{items.length > 0 && <section className="space-y-3"><div><h2 className="text-sm font-semibold text-slate-700">Análisis predictivos</h2><p className="mt-1 text-xs text-slate-500">Las probabilidades indican qué resultado consideró más probable el modelo y suman aproximadamente 100 %. No representan el cumplimiento de calorías o macronutrientes.</p></div>{items.map(item => <Card key={item.prediccionId ?? item.id} className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs text-slate-500">Día analizado: {new Date(`${item.fechaCorte}T00:00:00`).toLocaleDateString("es-PE")} · {item.momento ?? ""}</p><h2 className="mt-1 text-xl font-bold text-slate-800">{labels[item.clasificacion]}</h2><p className="text-xs text-slate-500">Ejecutado el: {executionDate(item)} · Estado: {item.estado ?? "—"}</p></div>{item.origenResultado && <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{item.origenResultado === "REUTILIZADO" ? "Resultado reutilizado" : "Nueva predicción"}</span>}</div>{item.probabilidades && <div className="mt-4 grid gap-2 sm:grid-cols-3">{(["ADECUADO", "MEJORABLE", "CRITICO"] as ClasificacionPredictiva[]).map(key => { const value = (item.probabilidades?.[key] ?? 0) * 100; return <div key={key}><div className="mb-1 flex justify-between text-xs text-slate-600"><span>{labels[key]}</span><span>{value.toLocaleString("es-PE", { maximumFractionDigits: 2 })}%</span></div><ProgressBar value={value} color={key === "ADECUADO" ? "bg-emerald-500" : key === "MEJORABLE" ? "bg-amber-500" : "bg-rose-500"} /></div>; })}</div>}<p className="mt-3 text-xs text-slate-500">Resultado seleccionado: <strong>{labels[item.clasificacion]}</strong>, porque fue la probabilidad más alta.</p><dl className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><dt className="text-slate-400">Versión del modelo</dt><dd className="mt-1 font-semibold text-slate-700">{item.modelVersion}</dd></div>{item.schemaVersion && <div><dt className="text-slate-400">Versión del esquema</dt><dd className="mt-1 font-semibold text-slate-700">{item.schemaVersion}</dd></div>}<div><dt className="text-slate-400">Tiempo de inferencia</dt><dd className="mt-1 font-semibold text-slate-700">{item.inferenceMs != null ? `${item.inferenceMs} ms` : "—"}</dd></div></dl></Card>)}</section>}{dias.length > 0 && <section className="space-y-3"><h2 className="text-sm font-semibold text-slate-700">Registros nutricionales · últimos 30 días</h2><div className="grid gap-3 sm:grid-cols-2">{dias.map((dia) => <Card key={dia.fecha} className="p-4"><p className="text-sm font-semibold text-slate-800">{new Date(`${dia.fecha}T00:00:00`).toLocaleDateString("es-PE")}</p><p className="mt-1 text-xs text-slate-500">{dia.resumen.consumido.registrosAlimento} alimentos · {dia.resumen.consumido.registrosSuplemento} suplementos</p><p className="mt-2 text-sm text-slate-700">{dia.resumen.consumido.total.kcal != null ? `${dia.resumen.consumido.total.kcal} kcal` : "Energía no calculable"}</p></Card>)}</div></section>}</div>}</div>;
 }

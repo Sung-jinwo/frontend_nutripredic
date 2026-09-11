@@ -9,6 +9,7 @@ const PATH_TO_VIEW: Record<string, View> = {
   "/client/habitos": "client-habitos",
   "/client/conocimiento": "client-conocimiento",
   "/client/suplementos": "client-suplementos",
+  "/client/consumo": "client-consumo",
   "/client/analisis": "client-analisis",
   "/client/historial": "client-historial",
   "/client/recomendaciones": "client-recomendaciones",
@@ -28,19 +29,19 @@ export function AppLayout() {
   const breadcrumb = BREADCRUMBS[view] || "";
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ fontFamily: "'Inter', sans-serif", background: "#f0f4fb" }}>
+    <div className="flex h-screen overflow-hidden bg-[#f5f3ed]" style={{ fontFamily: "'Inter', sans-serif" }}>
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="bg-white border-b border-slate-100 px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <header className="flex shrink-0 items-center justify-between border-b border-[#dbe7e1] bg-[#fdfdfb]/95 py-3 pl-14 pr-4 backdrop-blur sm:px-7">
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-slate-400">NutriPredict</span>
-            <ChevronRight size={14} className="text-slate-300" />
-            <span className="text-slate-700 font-medium">{breadcrumb}</span>
+            <span className="text-slate-500">NutriPredict</span>
+            <ChevronRight size={14} className="text-slate-300" aria-hidden="true" />
+            <span className="font-medium text-[#173c36]">{breadcrumb}</span>
           </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6">
+        </header>
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <Outlet />
-        </div>
+        </main>
       </div>
     </div>
   );

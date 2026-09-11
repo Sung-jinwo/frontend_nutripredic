@@ -2,29 +2,29 @@
 
 :root {
   --font-size: 15px;
-  --background: #f0f4fb;
-  --foreground: #0f1e3d;
+  --background: #f5f3ed;
+  --foreground: #173c36;
   --card: #ffffff;
   --card-foreground: #0f1e3d;
   --popover: #ffffff;
   --popover-foreground: #0f1e3d;
-  --primary: #0d9488;
+  --primary: #173c36;
   --primary-foreground: #ffffff;
-  --secondary: #e4ecf7;
-  --secondary-foreground: #0f1e3d;
-  --muted: #eaf0f8;
+  --secondary: #e5eee8;
+  --secondary-foreground: #173c36;
+  --muted: #edf1ec;
   --muted-foreground: #64748b;
-  --accent: #4f46e5;
+  --accent: #397065;
   --accent-foreground: #ffffff;
   --destructive: #f43f5e;
   --destructive-foreground: #ffffff;
-  --border: rgba(15, 30, 61, 0.09);
+  --border: rgba(23, 60, 54, 0.12);
   --input: transparent;
-  --input-background: #f4f7fc;
+  --input-background: #fbfcfa;
   --switch-background: #cbd5e1;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #0d9488;
+  --ring: #397065;
   --chart-1: #f43f5e;
   --chart-2: #f59e0b;
   --chart-3: #10b981;
@@ -125,7 +125,7 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
 
   /**
@@ -177,5 +177,14 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #397065;
+    outline-offset: 2px;
   }
 }

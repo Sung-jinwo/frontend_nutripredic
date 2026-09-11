@@ -1,147 +1,194 @@
-import { useState } from "react";
-import { Brain, AlertCircle } from "lucide-react";
-import { SectionHeader, Card, Badge, ProgressBar } from "../../../components/shared";
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { AlertTriangle, Brain, CalendarDays, CheckCircle2, Database, RefreshCw, Info } from "lucide-react";
+import { Badge, Card, ProgressBar, SectionHeader } from "../../../components/shared";
+import { useAuth } from "../../../context/AuthContext";
+import { ApiError } from "../../../services/api";
+import {
+  analisisPredictivoService,
+  type AnalisisPredictivoResponse,
+  type ClasificacionPredictiva,
+  type MomentoEvaluacion,
+  type PrediccionModeloHistorialResponse,
+  type PreparacionAnalisisResponse,
+} from "../../../services/analisis-predictivo.service";
+import { conocimientoIaService, type SesionConocimientoResponse } from "../../../services/conocimiento-ia.service";
 import { FONT_HEADING, FONT_MONO } from "../../../types";
-import { BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Bar } from "recharts";
 
-const H = FONT_HEADING;
-const MONO = FONT_MONO;
+const today = () => new Date().toLocaleDateString("sv-SE");
+const labels: Record<ClasificacionPredictiva, string> = {
+  ADECUADO: "Adecuado",
+  MEJORABLE: "Mejorable",
+  CRITICO: "Crítico",
+};
+const colors: Record<ClasificacionPredictiva, string> = {
+  ADECUADO: "bg-emerald-500",
+  MEJORABLE: "bg-amber-500",
+  CRITICO: "bg-rose-500",
+};
+
+function messageFor(error: unknown) {
+  if (!(error instanceof ApiError)) return "No se pudo completar el análisis. Inténtalo nuevamente.";
+  if (error.status === 400) return `Datos insuficientes para el modelo V6. ${error.message}`;
+  if (error.status === 401) return "Tu sesión no es válida. Inicia sesión nuevamente.";
+  if (error.status === 403) return "No tienes permiso para analizar este perfil.";
+  if (error.status === 404) return "No se encontró el cliente o el procedimiento de IA activo.";
+  if (error.status === 502) return "El modelo predictivo no está disponible en este momento. No se generó ningún resultado.";
+  if (error.status === 500) return "El servidor no pudo completar el análisis. Inténtalo más tarde.";
+  return error.message;
+}
 
 export default function ClientAnalisisPage() {
-  const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(true);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [fechaCorte, setFechaCorte] = useState(today);
+  const [momento, setMomento] = useState<MomentoEvaluacion>("BASAL");
+  const [result, setResult] = useState<AnalisisPredictivoResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState(false);
+  const [iaSession, setIaSession] = useState<SesionConocimientoResponse | null>(null);
+  const [prep, setPrep] = useState<PreparacionAnalisisResponse | null>(null);
+  const [prepLoading, setPrepLoading] = useState(false);
+  const [prepError, setPrepError] = useState("");
+  const [latestPrediction, setLatestPrediction] = useState<PrediccionModeloHistorialResponse | null>(null);
 
-  const handleRun = () => {
-    setDone(false);
-    setRunning(true);
-    setTimeout(() => { setRunning(false); setDone(true); }, 2000);
+  useEffect(() => {
+    if (!user?.clienteId) return;
+    void analisisPredictivoService.listByCliente(user.clienteId)
+      .then(items => setLatestPrediction(items[0] ?? null))
+      .catch(() => setLatestPrediction(null));
+  }, [user?.clienteId]);
+
+  const loadPreparacion = useCallback(async () => {
+    if (!user?.clienteId || !fechaCorte) return;
+    setPrepLoading(true);
+    setPrepError("");
+    try {
+      const p = await analisisPredictivoService.preparacion(user.clienteId, fechaCorte);
+      setPrep(p);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 400 && cause.details) {
+        // backend returns datosFaltantes in details, try to extract
+        const d = cause.details as { fieldErrors?: { field: string; message: string }[]; datosFaltantes?: string[] };
+        const faltantes = d?.fieldErrors?.map(e => e.message) ?? [];
+        setPrep({
+          clienteId: user.clienteId!,
+          fechaCorte,
+          puedeAnalizar: false,
+          diasCompletos: 0,
+          diasRequeridos: 0,
+          dominios: {},
+          perfilHistoricoDisponible: false,
+          xDisponibles: 0,
+          xTotal: 5,
+          datosFaltantes: faltantes.length ? faltantes : [cause.message],
+        });
+        setPrepError("");
+      } else {
+        setPrepError(cause instanceof Error ? cause.message : "No se pudo consultar preparación");
+      }
+    } finally {
+      setPrepLoading(false);
+    }
+  }, [user?.clienteId, fechaCorte]);
+
+  useEffect(() => { void loadPreparacion(); }, [loadPreparacion]);
+
+  const run = async () => {
+    if (!user?.clienteId) {
+      setError("No se encontró el perfil de cliente asociado a tu cuenta.");
+      return;
+    }
+    // consultar preparación fresca antes de analizar
+    setLoading(true);
+    setError("");
+    setUnavailable(false);
+    try {
+      const p = await analisisPredictivoService.preparacion(user.clienteId, fechaCorte);
+      setPrep(p);
+      if (!p.puedeAnalizar) {
+        setError(`No se puede ejecutar: ${p.datosFaltantes.join("; ") || "faltan datos esenciales del perfil"}`);
+        setLoading(false);
+        return;
+      }
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 400) {
+        setError(messageFor(cause));
+        setLoading(false);
+        return;
+      }
+    }
+    try {
+      const response = await analisisPredictivoService.ejecutar({
+        clienteId: user.clienteId,
+        fechaCorte,
+        participacionEstudioId: null,
+        momento,
+      });
+      setResult(response);
+      void analisisPredictivoService.listByCliente(user.clienteId)
+        .then(items => setLatestPrediction(items[0] ?? null));
+      if (response.estadoPccIa === "GENERADA") {
+        try { setIaSession(await conocimientoIaService.obtener(user.clienteId)); } catch { setIaSession(null); }
+      } else setIaSession(null);
+    } catch (cause) {
+      setResult(null);
+      setUnavailable(cause instanceof ApiError && cause.status === 502);
+      setError(messageFor(cause));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const radarData = [
-    { dim: "Proteínas", val: 40 },
-    { dim: "Hidratación", val: 75 },
-    { dim: "Frecuencia", val: 60 },
-    { dim: "Organización", val: 50 },
-    { dim: "Conocimiento", val: 25 },
-    { dim: "Variedad", val: 55 },
-  ];
-
-  return (
-    <div>
-      <SectionHeader
-        title="Mi Análisis Predictivo"
-        subtitle="Resultados generados por el modelo de inteligencia artificial"
-        action={
-          <button
-            onClick={handleRun}
-            disabled={running}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60"
-          >
-            <Brain size={14} />
-            {running ? "Procesando..." : "Ejecutar nuevo análisis"}
-          </button>
-        }
-      />
-
-      {running && (
-        <Card className="p-6 mb-4 border-indigo-200 bg-indigo-50/30">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
-            <div>
-              <div className="font-semibold text-slate-800 text-sm" style={H}>Procesando análisis...</div>
-              <div className="text-xs text-slate-500 mt-0.5">El modelo IA está evaluando tus datos nutricionales</div>
-            </div>
-            <div className="ml-auto text-xs text-indigo-600 font-medium" style={MONO}>~0.30s</div>
+  const prepDisabled = prep ? !prep.puedeAnalizar : false;
+  return <div>
+    <SectionHeader title="Mi análisis predictivo" subtitle="Evaluación diaria basada en el consumo real del día anterior" action={<button onClick={() => void run()} disabled={loading || !user?.clienteId || prepDisabled} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{loading ? <RefreshCw size={14} className="animate-spin" /> : <Brain size={14} />}{loading ? "Analizando..." : "Evaluar día anterior"}</button>} />
+    <Card className="mb-5 p-5"><div className="grid gap-4 sm:grid-cols-2">
+      <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 flex items-center gap-1.5"><CalendarDays size={13} /> Fecha de corte</span><input type="date" value={fechaCorte} max={today()} onChange={event => setFechaCorte(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-700" /></label>
+      <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Momento de evaluación</span><select value={momento} onChange={event => setMomento(event.target.value as MomentoEvaluacion)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-700"><option value="BASAL">Basal</option><option value="FINAL">Final</option><option value="NO_DETERMINADO">No determinado</option></select></label>
+    </div></Card>
+    <Card className="mb-5 p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-800" style={FONT_HEADING}>Preparación V6</h3>
+        <button onClick={() => void loadPreparacion()} disabled={prepLoading} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-50"><RefreshCw size={12} className={prepLoading ? "animate-spin" : ""} /> Actualizar</button>
+      </div>
+      {prepLoading && <p className="mt-3 text-xs text-slate-500">Consultando preparación...</p>}
+      {prepError && <p className="mt-3 text-xs text-rose-600">{prepError}</p>}
+      {prep && !prepLoading && (
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className={`rounded-full px-2.5 py-1 font-semibold ${prep.puedeAnalizar ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{prep.puedeAnalizar ? "puedeAnalizar: sí" : "puedeAnalizar: no"}</span>
+            <span className="rounded-full bg-slate-50 px-2.5 py-1 font-medium text-slate-600">{prep.xDisponibles}/{prep.xTotal} datos esenciales</span>
+            <span className={`rounded-full px-2.5 py-1 font-medium ${prep.perfilHistoricoDisponible ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>perfil histórico: {prep.perfilHistoricoDisponible ? "sí" : "no"}</span>
           </div>
-          <div className="mt-4 h-1.5 bg-indigo-100 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-500 rounded-full animate-pulse w-3/4" />
-          </div>
-        </Card>
-      )}
-
-      {done && (
-        <>
-          <Card className="p-5 mb-4 border-l-4 border-l-amber-400">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Resultado del análisis · 15 jun. 2026</div>
-                <div className="text-xl font-bold text-slate-800 mb-2" style={H}>Perfil nutricional: Nivel Moderado</div>
-                <div className="flex items-center gap-3">
-                  <Badge label="Conocimiento nutricional: Bajo" variant="danger" />
-                  <Badge label="Consumo de suplementos: Alto" variant="danger" />
-                  <Badge label="Organización: Media" variant="warning" />
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] text-slate-400">Confianza del modelo</div>
-                <div className="text-2xl font-bold text-indigo-600" style={H}>87.4%</div>
-                <div className="text-[10px] text-slate-400">Tiempo: 0.28s</div>
-              </div>
-            </div>
-          </Card>
-
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            {[
-              {
-                title: "Conocimiento Nutricional", level: "Bajo", val: 22, color: "rose",
-                desc: "Tu comprensión sobre alimentación saludable y nutrición requiere mayor atención.",
-                items: [],
-              },
-              {
-                title: "Consumo de Suplementos", level: "Alto", val: 85, color: "rose",
-                desc: "El consumo de suplementos está por encima de lo recomendado para tu perfil.",
-                items: [],
-              },
-              {
-                title: "Organización Alimenticia", level: "Medio", val: 55, color: "amber",
-                desc: "Existe una organización parcial que puede optimizarse para mejores resultados.",
-                items: [],
-              },
-            ].map(c => (
-              <Card key={c.title} className="p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-semibold text-slate-700 text-xs uppercase tracking-wide">{c.title}</h4>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                    c.color === "rose" ? "bg-rose-50 text-rose-600" : "bg-amber-50 text-amber-600"
-                  }`}>{c.level}</span>
-                </div>
-                <div className="mb-3">
-                  <ProgressBar value={c.val} color={c.color === "rose" ? "bg-rose-400" : "bg-amber-400"} />
-                  <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-                    <span>0</span>
-                    <span className={`font-bold ${c.color === "rose" ? "text-rose-500" : "text-amber-500"}`}>{c.val}%</span>
-                    <span>100</span>
-                  </div>
-                </div>
-                <p className="text-[11px] text-slate-500 mb-2">{c.desc}</p>
-                <ul className="space-y-1">
-                  {c.items.map(it => (
-                    <li key={it} className="flex items-start gap-1.5 text-[11px] text-slate-500">
-                      <AlertCircle size={10} className={`mt-0.5 flex-shrink-0 ${c.color === "rose" ? "text-rose-400" : "text-amber-400"}`} />
-                      {it}
-                    </li>
-                  ))}
-                </ul>
-              </Card>
+          {Object.keys(prep.dominios).length > 0 && <div className="grid gap-2 sm:grid-cols-3 text-xs">
+            {Object.entries(prep.dominios).map(([k, v]) => (
+              <div key={k} className="rounded-lg bg-slate-50 px-3 py-2"><p className="font-semibold text-slate-600">{k}</p><p className={`mt-1 font-medium ${v.estado === "COMPLETO" ? "text-emerald-700" : "text-amber-700"}`}>{v.estado} {v.diasCompletos}/{v.diasRequeridos}</p></div>
             ))}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Card className="p-5">
-              <h4 className="font-semibold text-slate-800 text-sm mb-4" style={H}>Dimensiones evaluadas</h4>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={radarData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#94a3b8" }} />
-                  <YAxis dataKey="dim" type="category" tick={{ fontSize: 11, fill: "#64748b" }} width={85} />
-                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                  <Bar dataKey="val" fill="#0d9488" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </Card>
-          </div>
-        </>
+          </div>}
+          {!prep.puedeAnalizar && prep.datosFaltantes.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-800">Datos faltantes</p><ul className="mt-1 list-disc pl-4 text-xs text-amber-700">{prep.datosFaltantes.map((d, i) => <li key={i}>{d}</li>)}</ul></div>
+          )}
+          {prepDisabled && <p className="text-xs text-amber-700">Para evaluar tu consumo necesitas el perfil completo y al menos un alimento con macronutrientes y el agua declarada en el día anterior. Tu meta inicial se genera por separado.</p>}
+        </div>
       )}
-    </div>
-  );
+    </Card>
+    {loading && <Card className="p-10 text-center"><RefreshCw size={28} className="mx-auto mb-3 animate-spin text-indigo-500" /><h2 className="text-sm font-semibold text-slate-700">Procesando análisis</h2><p className="mt-1 text-xs text-slate-500">Evaluando el registro real del día anterior...</p></Card>}
+    {!loading && error && <Card className={`border-l-4 p-6 ${unavailable ? "border-l-amber-400" : "border-l-rose-400"}`}><div className="flex items-start gap-3"><AlertTriangle size={20} className={unavailable ? "text-amber-500" : "text-rose-500"} /><div><h2 className="text-sm font-semibold text-slate-800">{unavailable ? "Modelo no disponible" : "No se pudo ejecutar el análisis"}</h2><p className="mt-1 text-sm text-slate-600">{error}</p></div></div></Card>}
+    {!loading && !error && !result && latestPrediction && <Card className="p-6"><div className="flex items-start gap-3"><Database size={22} className="mt-0.5 text-indigo-500" /><div><h2 className="text-sm font-semibold text-slate-800">Última predicción guardada</h2><p className="mt-1 text-xs text-slate-500">El modelo tardó <strong className="text-slate-800">{Number(latestPrediction.inferenceMs ?? 0).toLocaleString("es-PE", { maximumFractionDigits: 2 })} ms</strong> en generar la predicción del {new Date(`${latestPrediction.fechaCorte}T00:00:00`).toLocaleDateString("es-PE")}.</p><p className="mt-2 text-[11px] text-slate-400">{latestPrediction.modelVersion} · {latestPrediction.schemaVersion}</p></div></div></Card>}
+    {!loading && !error && !result && !latestPrediction && <Card className="border-dashed p-10 text-center"><Database size={28} className="mx-auto mb-3 text-slate-300" /><h2 className="text-sm font-semibold text-slate-700">Sin evaluación diaria disponible</h2><p className="mx-auto mt-1 max-w-xl text-xs text-slate-500">Registra durante un día tus alimentos y agua. Al día siguiente podrás obtener una clasificación basada en ese consumo real.</p></Card>}
+    {!loading && result && <div className="space-y-4">
+      <Card className="p-5"><h3 className="mb-4 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Resumen del ciclo posterior al análisis</h3><div className="grid gap-3 md:grid-cols-3"><CycleSummary title="Predicción" value={labels[result.clasificacion]} detail={result.origenResultado} tone="emerald" /><CycleSummary title="Actividad de conocimiento" value={pccIaLabel(result.estadoPccIa)} detail={iaSession ? "Sesión automática lista" : pccIaDetail(result.estadoPccIa)} tone="indigo" action={result.estadoPccIa === "GENERADA" ? () => navigate("/client/conocimiento") : undefined} /><CycleSummary title="Evaluación de consumo" value={pcsLabel(result.estadoPcs)} detail={result.estadoPcs === "NO_DETERMINADA" ? "Evaluación no disponible o no determinada" : "Resultado oficial"} tone="amber" /></div></Card>
+      <Card className={`border-l-4 p-6 ${result.clasificacion === "ADECUADO" ? "border-l-emerald-400" : result.clasificacion === "MEJORABLE" ? "border-l-amber-400" : "border-l-rose-400"}`}><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="mb-2 flex items-center gap-2"><CheckCircle2 size={18} className="text-emerald-500" /><span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Clasificación técnica</span><span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 flex items-center gap-1"><Info size={10} /> Modelo técnico de integración</span></div><h2 className="text-3xl font-bold text-slate-800" style={FONT_HEADING}>{labels[result.clasificacion]}</h2><p className="mt-1 text-xs text-slate-500">Corte {new Date(`${result.fechaCorte}T00:00:00`).toLocaleDateString("es-PE")} · momento {result.momento}</p></div><Badge label={result.origenResultado} variant={result.origenResultado === "GENERADO" ? "success" : "info"} /></div></Card>
+      <Card className="p-5"><h3 className="text-sm font-semibold text-slate-800" style={FONT_HEADING}>Metas nutricionales de la predicción</h3><p className="mt-1 text-xs text-slate-500">Estos valores regresaron en la misma respuesta V6 y quedaron guardados en Spring Boot.</p><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Energía", result.kcal, "kcal"], ["Proteína", result.proteinaG, "g"], ["Carbohidratos", result.carbohidratosG, "g"], ["Grasas", result.grasasG, "g"], ["Líquidos", result.aguaMl, "ml"]].map(([label, value, unit]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-lg font-bold text-slate-800">{Number(value).toLocaleString("es-PE", { maximumFractionDigits: 1 })} <span className="text-xs font-medium text-slate-500">{unit}</span></p></div>)}</div><p className="mt-3 text-[11px] text-slate-400">{result.formulaNutricionalVersion}</p></Card>
+      <Card className="p-5"><h3 className="mb-4 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Probabilidades del modelo</h3><div className="space-y-4">{(["ADECUADO", "MEJORABLE", "CRITICO"] as ClasificacionPredictiva[]).map(key => { const value = result.probabilidades[key] * 100; return <div key={key}><div className="mb-1.5 flex justify-between text-xs"><span className="font-medium text-slate-600">{labels[key]}</span><span className="font-bold text-slate-800" style={FONT_MONO}>{value.toLocaleString("es-PE", { maximumFractionDigits: 2 })}%</span></div><ProgressBar value={value} color={colors[key]} /></div>; })}</div></Card>
+      <Card className="p-5"><h3 className="mb-3 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Trazabilidad</h3><dl className="grid gap-3 text-xs sm:grid-cols-4"><div><dt className="text-slate-400">Versión del modelo</dt><dd className="mt-1 font-semibold text-slate-700">{result.modelVersion}</dd></div><div><dt className="text-slate-400">Versión del esquema</dt><dd className="mt-1 font-semibold text-slate-700">{result.schemaVersion}</dd></div><div><dt className="text-slate-400">inferenceMs</dt><dd className="mt-1 font-semibold text-slate-700">{result.inferenceMs}</dd></div><div><dt className="text-slate-400">Generado el</dt><dd className="mt-1 font-semibold text-slate-700">{new Date(result.inferredAt).toLocaleString("es-PE")}</dd></div></dl><p className="mt-3 text-xs text-slate-400">LOGISTIC_REGRESSION · SYNTHETIC_TECHNICAL · no es modelo final</p></Card>
+    </div>}
+  </div>;
 }
+
+function pccIaLabel(state: AnalisisPredictivoResponse["estadoPccIa"]) { return state === "IA_NO_DISPONIBLE" || state === "NO_DISPONIBLE" ? "No disponible" : state.charAt(0) + state.slice(1).toLowerCase(); }
+function pccIaDetail(state: AnalisisPredictivoResponse["estadoPccIa"]) { return state === "PENDIENTE" ? "Actividad pendiente" : state === "RESPONDIDA" ? "Actividad respondida" : "No hay actividad disponible"; }
+function pcsLabel(state: AnalisisPredictivoResponse["estadoPcs"]) { return state === "NO_ALTO" ? "No alto" : state === "NO_DETERMINADA" ? "No determinada" : "Alto"; }
+function CycleSummary({ title, value, detail, tone, action }: { title: string; value: string; detail: string; tone: "emerald" | "indigo" | "amber"; action?: () => void }) { const colors = { emerald: "border-emerald-200 bg-emerald-50", indigo: "border-indigo-200 bg-indigo-50", amber: "border-amber-200 bg-amber-50" }; return <div className={`rounded-xl border p-3 ${colors[tone]}`}><p className="text-xs font-medium text-slate-500">{title}</p><p className="mt-1 text-sm font-bold text-slate-800">{value}</p><p className="mt-1 text-xs text-slate-600">{detail}</p>{action && <button onClick={action} className="mt-2 text-xs font-semibold text-indigo-700 underline">Ver actividad</button>}</div>; }

@@ -18,6 +18,7 @@ export default function AdminClientesPage() {
           </button>
         }
       />
+      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800"><strong>Vista demostrativa:</strong> la lista y sus clasificaciones proceden de datos mock y no son resultados predictivos reales.</div>
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4">
