@@ -1,19 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Brain, CalendarDays, CheckCircle2, Database, RefreshCw, Info } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, RefreshCw, Info } from "lucide-react";
 import { Badge, Card, ProgressBar, SectionHeader } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
 import { ApiError } from "../../../services/api";
 import {
   analisisPredictivoService,
   type AnalisisPredictivoResponse,
+  type CicloDiarioResponse,
   type ClasificacionPredictiva,
-  type MomentoEvaluacion,
   type PrediccionModeloHistorialResponse,
   type PreparacionAnalisisResponse,
 } from "../../../services/analisis-predictivo.service";
 import { conocimientoIaService, type SesionConocimientoResponse } from "../../../services/conocimiento-ia.service";
 import { FONT_HEADING, FONT_MONO } from "../../../types";
+import { toast } from "sonner";
 
 const today = () => new Date().toLocaleDateString("sv-SE");
 const labels: Record<ClasificacionPredictiva, string> = {
@@ -41,8 +42,7 @@ function messageFor(error: unknown) {
 export default function ClientAnalisisPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [fechaCorte, setFechaCorte] = useState(today);
-  const [momento, setMomento] = useState<MomentoEvaluacion>("BASAL");
+  const [fechaCorte] = useState(today);
   const [result, setResult] = useState<AnalisisPredictivoResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -52,21 +52,43 @@ export default function ClientAnalisisPage() {
   const [prepLoading, setPrepLoading] = useState(false);
   const [prepError, setPrepError] = useState("");
   const [latestPrediction, setLatestPrediction] = useState<PrediccionModeloHistorialResponse | null>(null);
+  const [ciclo, setCiclo] = useState<CicloDiarioResponse | null>(null);
 
   useEffect(() => {
     if (!user?.clienteId) return;
+    const loadState = () => {
+      void analisisPredictivoService.estadoCicloDiario(user.clienteId!)
+        .then(value => {
+          setCiclo(value);
+          setResult(value.analisis);
+          if (value.estado === "FALLIDO") setError(value.mensaje);
+        })
+        .catch(() => setCiclo(null));
+    };
     void analisisPredictivoService.listByCliente(user.clienteId)
       .then(items => setLatestPrediction(items[0] ?? null))
       .catch(() => setLatestPrediction(null));
+    loadState();
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<CicloDiarioResponse>).detail;
+      if (detail) {
+        setCiclo(detail);
+        setResult(detail.analisis);
+        setError(detail.estado === "FALLIDO" ? detail.mensaje : "");
+      } else loadState();
+    };
+    window.addEventListener("nutripredict:ciclo-diario-actualizado", onUpdated);
+    return () => window.removeEventListener("nutripredict:ciclo-diario-actualizado", onUpdated);
   }, [user?.clienteId]);
 
-  const loadPreparacion = useCallback(async () => {
+  const loadPreparacion = useCallback(async (notificar = false) => {
     if (!user?.clienteId || !fechaCorte) return;
     setPrepLoading(true);
     setPrepError("");
     try {
       const p = await analisisPredictivoService.preparacion(user.clienteId, fechaCorte);
       setPrep(p);
+      if (notificar) toast.success(p.puedeAnalizar ? "Datos listos para el ciclo diario." : "Consulta actualizada: el ciclo sigue pendiente de datos.");
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 400 && cause.details) {
         // backend returns datosFaltantes in details, try to extract
@@ -100,32 +122,35 @@ export default function ClientAnalisisPage() {
       setError("No se encontró el perfil de cliente asociado a tu cuenta.");
       return;
     }
-    // consultar preparación fresca antes de analizar
     setLoading(true);
     setError("");
     setUnavailable(false);
-    try {
-      const p = await analisisPredictivoService.preparacion(user.clienteId, fechaCorte);
-      setPrep(p);
-      if (!p.puedeAnalizar) {
-        setError(`No se puede ejecutar: ${p.datosFaltantes.join("; ") || "faltan datos esenciales del perfil"}`);
-        setLoading(false);
-        return;
-      }
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 400) {
-        setError(messageFor(cause));
-        setLoading(false);
-        return;
+    if (!ciclo?.prediccionId) {
+      try {
+        const p = await analisisPredictivoService.preparacion(user.clienteId, fechaCorte);
+        setPrep(p);
+        if (!p.puedeAnalizar) {
+          setError(`No se puede ejecutar: ${p.datosFaltantes.join("; ") || "faltan datos esenciales del perfil"}`);
+          setLoading(false);
+          return;
+        }
+      } catch (cause) {
+        if (cause instanceof ApiError && cause.status === 400) {
+          setError(messageFor(cause));
+          setLoading(false);
+          return;
+        }
       }
     }
     try {
-      const response = await analisisPredictivoService.ejecutar({
-        clienteId: user.clienteId,
-        fechaCorte,
-        participacionEstudioId: null,
-        momento,
-      });
+      const responseCiclo = await analisisPredictivoService.asegurarCicloDiario(user.clienteId);
+      setCiclo(responseCiclo);
+      setResult(responseCiclo.analisis);
+      if (responseCiclo.estado !== "COMPLETADO" || !responseCiclo.analisis) {
+        setError(responseCiclo.mensaje + (responseCiclo.datosFaltantes.length ? ` ${responseCiclo.datosFaltantes.join("; ")}` : ""));
+        return;
+      }
+      const response = responseCiclo.analisis;
       setResult(response);
       void analisisPredictivoService.listByCliente(user.clienteId)
         .then(items => setLatestPrediction(items[0] ?? null));
@@ -141,17 +166,15 @@ export default function ClientAnalisisPage() {
     }
   };
 
-  const prepDisabled = prep ? !prep.puedeAnalizar : false;
+  const prepDisabled = !ciclo?.prediccionId && prep ? !prep.puedeAnalizar : false;
+  const cicloHoyDisponible = ciclo?.estado === "COMPLETADO";
   return <div>
-    <SectionHeader title="Mi análisis predictivo" subtitle="Evaluación diaria basada en el consumo real del día anterior" action={<button onClick={() => void run()} disabled={loading || !user?.clienteId || prepDisabled} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{loading ? <RefreshCw size={14} className="animate-spin" /> : <Brain size={14} />}{loading ? "Analizando..." : "Evaluar día anterior"}</button>} />
-    <Card className="mb-5 p-5"><div className="grid gap-4 sm:grid-cols-2">
-      <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 flex items-center gap-1.5"><CalendarDays size={13} /> Fecha de corte</span><input type="date" value={fechaCorte} max={today()} onChange={event => setFechaCorte(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-700" /></label>
-      <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Momento de evaluación</span><select value={momento} onChange={event => setMomento(event.target.value as MomentoEvaluacion)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-700"><option value="BASAL">Basal</option><option value="FINAL">Final</option><option value="NO_DETERMINADO">No determinado</option></select></label>
-    </div></Card>
+    <SectionHeader title="Mi análisis predictivo" subtitle="Evaluación automática diaria basada en el consumo real del día anterior" action={!cicloHoyDisponible ? <button onClick={() => void run()} disabled={loading || !user?.clienteId || prepDisabled} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw size={14} className={loading ? "animate-spin" : ""}/>{loading ? "Procesando..." : ciclo?.estado === "FALLIDO" ? "Reintentar módulos pendientes" : "Iniciar ciclo de hoy"}</button> : undefined} />
+    <Card className="mb-5 p-5"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-800">Ciclo diario · {new Date(`${fechaCorte}T00:00:00`).toLocaleDateString("es-PE", { dateStyle: "long" })}</p>{ciclo && <Badge label={ciclo.estado} variant={ciclo.estado === "COMPLETADO" ? "success" : ciclo.estado === "FALLIDO" ? "danger" : "warning"} />}</div><p className="mt-1 text-xs leading-5 text-slate-500">La consulta de esta página no ejecuta otra predicción. Un reintento conserva la predicción V6 y procesa únicamente los módulos pendientes.</p></Card>
     <Card className="mb-5 p-5">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-800" style={FONT_HEADING}>Preparación V6</h3>
-        <button onClick={() => void loadPreparacion()} disabled={prepLoading} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-50"><RefreshCw size={12} className={prepLoading ? "animate-spin" : ""} /> Actualizar</button>
+        <button onClick={() => void loadPreparacion(true)} disabled={prepLoading} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-50"><RefreshCw size={12} className={prepLoading ? "animate-spin" : ""} /> Actualizar</button>
       </div>
       {prepLoading && <p className="mt-3 text-xs text-slate-500">Consultando preparación...</p>}
       {prepError && <p className="mt-3 text-xs text-rose-600">{prepError}</p>}
@@ -159,7 +182,7 @@ export default function ClientAnalisisPage() {
         <div className="mt-3 space-y-3">
           <div className="flex flex-wrap gap-2 text-xs">
             <span className={`rounded-full px-2.5 py-1 font-semibold ${prep.puedeAnalizar ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{prep.puedeAnalizar ? "puedeAnalizar: sí" : "puedeAnalizar: no"}</span>
-            <span className="rounded-full bg-slate-50 px-2.5 py-1 font-medium text-slate-600">{prep.xDisponibles}/{prep.xTotal} datos esenciales</span>
+            <span className="rounded-full bg-slate-50 px-2.5 py-1 font-medium text-slate-600">{prep.xDisponibles === prep.xTotal ? "Datos disponibles" : prep.xDisponibles === 8 ? "Perfil listo · falta consumo del día anterior" : "Hay datos por completar"}</span>
             <span className={`rounded-full px-2.5 py-1 font-medium ${prep.perfilHistoricoDisponible ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>perfil histórico: {prep.perfilHistoricoDisponible ? "sí" : "no"}</span>
           </div>
           {Object.keys(prep.dominios).length > 0 && <div className="grid gap-2 sm:grid-cols-3 text-xs">
@@ -168,7 +191,12 @@ export default function ClientAnalisisPage() {
             ))}
           </div>}
           {!prep.puedeAnalizar && prep.datosFaltantes.length > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-800">Datos faltantes</p><ul className="mt-1 list-disc pl-4 text-xs text-amber-700">{prep.datosFaltantes.map((d, i) => <li key={i}>{d}</li>)}</ul></div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">{prep.xDisponibles === 8 ? "Tu perfil está listo. Necesitamos evaluar un día registrado." : "Completa la información para evaluar tu consumo."}</p>
+              <p className="mt-2 text-xs leading-5 text-amber-800">Registra al menos un alimento con proteínas, carbohidratos y grasas, y declara el agua consumida. Los registros de hoy se evaluarán mañana; el test de cinco preguntas y la orientación se generan al completar ese ciclo.</p>
+              <button onClick={() => navigate("/client/habitos")} className="mt-3 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white">Ir a Registro diario</button>
+              <details className="mt-3 text-xs text-amber-700"><summary className="cursor-pointer">Ver detalle técnico ({prep.xDisponibles}/{prep.xTotal})</summary><ul className="mt-2 list-disc pl-4">{prep.datosFaltantes.map((d, i) => <li key={i}>{d}</li>)}</ul></details>
+            </div>
           )}
           {prepDisabled && <p className="text-xs text-amber-700">Para evaluar tu consumo necesitas el perfil completo y al menos un alimento con macronutrientes y el agua declarada en el día anterior. Tu meta inicial se genera por separado.</p>}
         </div>
@@ -183,7 +211,7 @@ export default function ClientAnalisisPage() {
       <Card className={`border-l-4 p-6 ${result.clasificacion === "ADECUADO" ? "border-l-emerald-400" : result.clasificacion === "MEJORABLE" ? "border-l-amber-400" : "border-l-rose-400"}`}><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="mb-2 flex items-center gap-2"><CheckCircle2 size={18} className="text-emerald-500" /><span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Clasificación técnica</span><span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 flex items-center gap-1"><Info size={10} /> Modelo técnico de integración</span></div><h2 className="text-3xl font-bold text-slate-800" style={FONT_HEADING}>{labels[result.clasificacion]}</h2><p className="mt-1 text-xs text-slate-500">Corte {new Date(`${result.fechaCorte}T00:00:00`).toLocaleDateString("es-PE")} · momento {result.momento}</p></div><Badge label={result.origenResultado} variant={result.origenResultado === "GENERADO" ? "success" : "info"} /></div></Card>
       <Card className="p-5"><h3 className="text-sm font-semibold text-slate-800" style={FONT_HEADING}>Metas nutricionales de la predicción</h3><p className="mt-1 text-xs text-slate-500">Estos valores regresaron en la misma respuesta V6 y quedaron guardados en Spring Boot.</p><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Energía", result.kcal, "kcal"], ["Proteína", result.proteinaG, "g"], ["Carbohidratos", result.carbohidratosG, "g"], ["Grasas", result.grasasG, "g"], ["Líquidos", result.aguaMl, "ml"]].map(([label, value, unit]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-lg font-bold text-slate-800">{Number(value).toLocaleString("es-PE", { maximumFractionDigits: 1 })} <span className="text-xs font-medium text-slate-500">{unit}</span></p></div>)}</div><p className="mt-3 text-[11px] text-slate-400">{result.formulaNutricionalVersion}</p></Card>
       <Card className="p-5"><h3 className="mb-4 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Probabilidades del modelo</h3><div className="space-y-4">{(["ADECUADO", "MEJORABLE", "CRITICO"] as ClasificacionPredictiva[]).map(key => { const value = result.probabilidades[key] * 100; return <div key={key}><div className="mb-1.5 flex justify-between text-xs"><span className="font-medium text-slate-600">{labels[key]}</span><span className="font-bold text-slate-800" style={FONT_MONO}>{value.toLocaleString("es-PE", { maximumFractionDigits: 2 })}%</span></div><ProgressBar value={value} color={colors[key]} /></div>; })}</div></Card>
-      <Card className="p-5"><h3 className="mb-3 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Trazabilidad</h3><dl className="grid gap-3 text-xs sm:grid-cols-4"><div><dt className="text-slate-400">Versión del modelo</dt><dd className="mt-1 font-semibold text-slate-700">{result.modelVersion}</dd></div><div><dt className="text-slate-400">Versión del esquema</dt><dd className="mt-1 font-semibold text-slate-700">{result.schemaVersion}</dd></div><div><dt className="text-slate-400">inferenceMs</dt><dd className="mt-1 font-semibold text-slate-700">{result.inferenceMs}</dd></div><div><dt className="text-slate-400">Generado el</dt><dd className="mt-1 font-semibold text-slate-700">{new Date(result.inferredAt).toLocaleString("es-PE")}</dd></div></dl><p className="mt-3 text-xs text-slate-400">LOGISTIC_REGRESSION · SYNTHETIC_TECHNICAL · no es modelo final</p></Card>
+      <Card className="p-5"><h3 className="mb-3 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Trazabilidad</h3><dl className="grid gap-3 text-xs sm:grid-cols-5"><div><dt className="text-slate-400">Versión del modelo</dt><dd className="mt-1 font-semibold text-slate-700">{result.modelVersion}</dd></div><div><dt className="text-slate-400">Versión del esquema</dt><dd className="mt-1 font-semibold text-slate-700">{result.schemaVersion}</dd></div><div><dt className="text-slate-400">Inferencia técnica</dt><dd className="mt-1 font-semibold text-slate-700">{Number(result.inferenceMs).toLocaleString("es-PE", { maximumFractionDigits: 2 })} ms</dd></div><div><dt className="text-slate-400">Tiempo activo del ciclo diario completo</dt><dd className="mt-1 font-semibold text-slate-700">{result.procesamientoCicloMs == null ? "No disponible" : `${Number(result.procesamientoCicloMs).toLocaleString("es-PE")} ms`}</dd></div><div><dt className="text-slate-400">Generado el</dt><dd className="mt-1 font-semibold text-slate-700">{new Date(result.inferredAt).toLocaleString("es-PE")}</dd></div></dl><p className="mt-3 text-xs text-slate-400">El TPP administrativo usa el tiempo activo del ciclo completo; no usa únicamente inferenceMs.</p></Card>
     </div>}
   </div>;
 }

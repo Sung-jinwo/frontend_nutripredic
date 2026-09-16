@@ -1,10 +1,11 @@
 import { api } from "./api";
 
-export type MomentoEvaluacion = "BASAL" | "FINAL" | "NO_DETERMINADO";
+export type MomentoEvaluacion = "BASAL" | "FINAL" | "DIARIO" | "NO_DETERMINADO";
 export type ClasificacionPredictiva = "ADECUADO" | "MEJORABLE" | "CRITICO";
 export type OrigenResultado = "GENERADO" | "REUTILIZADO";
 export type EstadoPccIaPostAnalisis = "GENERADA" | "PENDIENTE" | "NO_DISPONIBLE" | "IA_NO_DISPONIBLE" | "RESPONDIDA";
 export type EstadoPcsPostAnalisis = "ALTO" | "NO_ALTO" | "NO_DETERMINADA";
+export type EstadoCicloDiario = "PENDIENTE" | "COMPLETADO" | "FALLIDO";
 
 export interface AnalisisPredictivoRequest {
   clienteId: number;
@@ -41,6 +42,10 @@ export interface AnalisisPredictivoResponse {
   resultadoDisponibleEn: string;
   estadoPccIa: EstadoPccIaPostAnalisis;
   estadoPcs: EstadoPcsPostAnalisis;
+  estadoCicloDiario: EstadoCicloDiario | null;
+  procesamientoCicloMs: number | null;
+  moduloFalloCiclo: string | null;
+  motivoFalloCiclo: string | null;
 }
 
 export interface DominioPreparacion {
@@ -94,6 +99,17 @@ export interface PrediccionModeloHistorialResponse {
   estadoPcs?: EstadoPcsPostAnalisis;
 }
 
+export interface CicloDiarioResponse {
+  estado: EstadoCicloDiario;
+  fechaCorte: string;
+  fechaEvaluada: string;
+  reutilizado: boolean;
+  prediccionId: number | null;
+  mensaje: string;
+  datosFaltantes: string[];
+  analisis: AnalisisPredictivoResponse | null;
+}
+
 function normalizeHistorial(raw: PrediccionModeloHistorialResponse): PrediccionModeloHistorialResponse {
   const id = raw.prediccionId ?? raw.id ?? 0;
   let probs = raw.probabilidades;
@@ -116,4 +132,8 @@ export const analisisPredictivoService = {
     const raw = await api.get<PrediccionModeloHistorialResponse[]>(`/api/clientes/${clienteId}/predicciones-modelo`);
     return raw.map(normalizeHistorial);
   },
+  asegurarCicloDiario: (clienteId: number) =>
+    api.post<CicloDiarioResponse>(`/api/clientes/${clienteId}/ciclo-diario/asegurar`, {}, { notifySuccess: false }),
+  estadoCicloDiario: (clienteId: number) =>
+    api.get<CicloDiarioResponse>(`/api/clientes/${clienteId}/ciclo-diario/estado`),
 };

@@ -8,7 +8,7 @@ const COLORS = ["#dc2626", "#0f766e"];
 const tooltipStyle = { borderRadius: 12, border: "1px solid #dbe7e1", boxShadow: "0 8px 24px rgba(23,60,54,.12)" };
 
 function reason(value: string | null) {
-  if (value === "SIN_RESULTADOS_VALIDOS") return "No existen resultados oficiales con estado de validez y nivel de conocimiento calculado.";
+  if (value === "SIN_RESULTADOS_VALIDOS") return "No existen sesiones diarias de Gemini respondidas que cumplan todos los requisitos del PCC oficial.";
   return value?.replaceAll("_", " ").toLocaleLowerCase() || "El backend no informó el motivo.";
 }
 
@@ -45,13 +45,13 @@ export default function AdminConocimientoPage() {
     <div className="space-y-5">
       <SectionHeader
         title="Conocimiento nutricional"
-        subtitle="Análisis del PCC oficial y de la cobertura de evaluaciones válidas."
+        subtitle="PCC calculado con la última evaluación diaria Gemini respondida y válida de cada cliente."
         action={<button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><RefreshCw size={14} /> Actualizar</button>}
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <KPICard icon={Brain} title="PCC oficial" value={data.porcentajePcc == null ? "—" : `${data.porcentajePcc.toFixed(1)}%`} sub="Clientes con bajo conocimiento" iconBg="bg-indigo-600" />
-        <KPICard icon={Users} title="Evaluados válidos" value={String(data.totalEvaluadosValidos)} sub="Último resultado válido por cliente" iconBg="bg-teal-600" />
+        <KPICard icon={Users} title="Evaluados válidos" value={String(data.totalEvaluadosValidos)} sub="Última sesión diaria válida por cliente" iconBg="bg-teal-600" />
         <KPICard icon={AlertTriangle} title="Bajo conocimiento" value={String(data.totalBajoConocimiento)} sub="Clientes que requieren atención" iconBg="bg-rose-600" />
       </div>
 
@@ -85,19 +85,9 @@ export default function AdminConocimientoPage() {
           )}
         </Card>
 
-        <div className="space-y-5">
-          <Card className="overflow-hidden">
-            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Composición del indicador</h2></div>
-            <div className="divide-y divide-slate-100">
-              {chartData.map((row, index) => (
-                <div key={row.name} className="flex items-center justify-between gap-3 px-5 py-4"><div className="flex items-center gap-3"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: COLORS[index] }} /><span className="text-sm text-slate-600">{row.name}</span></div><span className="text-lg font-semibold text-slate-900">{row.value}</span></div>
-              ))}
-            </div>
-          </Card>
-          <Card className="p-5">
-            <div className="flex gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-teal-600" size={20} /><div><h2 className="font-semibold text-slate-900">Qué dato toma PCC</h2><p className="mt-2 text-sm leading-6 text-slate-600">Usa el último <strong>ResultadoTest válido</strong> de cada cliente. Las evaluaciones diarias generadas por Gemini siguen siendo complementarias mientras el backend no las incorpore al indicador oficial.</p></div></div>
-          </Card>
-        </div>
+        <Card className="p-5 self-start">
+          <div className="flex gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-teal-600" size={20} /><div><h2 className="font-semibold text-slate-900">Qué dato toma PCC</h2><p className="mt-2 text-sm leading-6 text-slate-600">Usa exclusivamente la <strong>última sesión diaria de Gemini respondida y válida</strong> de cada cliente, asociada a una predicción V6 y a la configuración oficial pcc-ia-v1.</p></div></div>
+        </Card>
       </div>
     </div>
   );

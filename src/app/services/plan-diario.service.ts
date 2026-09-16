@@ -22,7 +22,7 @@ export interface CumplimientoDiarioResponse {
 
 export const planDiarioService = {
   inicializar: (clienteId: number, fecha: string) =>
-    api.post<PlanDiarioResponse>(`/api/clientes/${clienteId}/plan-diario/inicial?fecha=${fecha}`, {}),
+    api.post<PlanDiarioResponse>(`/api/clientes/${clienteId}/plan-diario/inicial?fecha=${fecha}`, {}, { notifySuccess: false }),
   siguiente: (clienteId: number, fechaCorte: string) =>
     api.get<PlanDiarioResponse>(`/api/clientes/${clienteId}/plan-diario/siguiente?fechaCorte=${fechaCorte}`),
   historial: (clienteId: number, desde: string, hasta: string) =>

@@ -10,7 +10,10 @@ export interface EvaluacionOrientacion {
   probAdecuado: number;
   probMejorable: number;
   probCritico: number;
+  confianzaPct: number | null;
   modelVersion: string;
+  inferenceMs: number | null;
+  inferredAt: string | null;
 }
 
 export interface ComparacionOrientacion {
@@ -19,8 +22,10 @@ export interface ComparacionOrientacion {
   unidad: string;
   meta: number;
   consumido: number;
+  diferencia: number | null;
   porcentaje: number;
   estado: EstadoComparacion;
+  estadoNormalizado: "DEFICIT" | "ADECUADO" | "EXCESO" | "NO_CALCULABLE";
 }
 
 export interface PrioridadOrientacion {
@@ -40,6 +45,8 @@ export interface RecomendacionOrientacion {
 export interface OrientacionResponse {
   personalizadaDisponible: boolean;
   mensaje: string | null;
+  fechaAplicacion: string | null;
+  planDiarioId: number | null;
   evaluacion: EvaluacionOrientacion | null;
   comparaciones: ComparacionOrientacion[];
   prioridades: PrioridadOrientacion[];

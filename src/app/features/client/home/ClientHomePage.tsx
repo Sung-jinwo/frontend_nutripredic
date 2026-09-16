@@ -11,6 +11,8 @@ import { conocimientoIaService } from "../../../services/conocimiento-ia.service
 import { conocimientoService, type ResultadoTestResponse } from "../../../services/conocimiento.service";
 import { objetivoNutricionalService, type ObjetivoNutricionalResponse } from "../../../services/objetivo-nutricional.service";
 import { planDiarioService } from "../../../services/plan-diario.service";
+import { pesoSemanalService, type EstadoPesoSemanal } from "../../../services/peso-semanal.service";
+import { resumenDiarioService } from "../../../services/resumen-diario.service";
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -41,6 +43,7 @@ export default function ClientHomePage() {
   const [objetivo, setObjetivo] = useState<ObjetivoNutricionalResponse | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(true);
   const [fetchError, setFetchError] = useState("");
+  const [pesoEstado, setPesoEstado] = useState<EstadoPesoSemanal | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -48,6 +51,7 @@ export default function ClientHomePage() {
     const fecha = new Date().toLocaleDateString("sv-SE");
     setLoadingProgress(true);
     void planDiarioService.inicializar(user.clienteId, fecha)
+      .then(() => conocimientoIaService.inicial(user.clienteId!))
       .catch(() => null)
       .then(() => Promise.all([
       habitosService.listByCliente(user.clienteId).catch(() => []),
@@ -57,14 +61,16 @@ export default function ClientHomePage() {
       conocimientoIaService.obtener(user.clienteId).catch(() => null),
       conocimientoService.history(user.clienteId).catch(() => [] as ResultadoTestResponse[]),
       objetivoNutricionalService.obtener(user.clienteId, fecha).catch(() => null),
+      pesoSemanalService.estado(user.clienteId).catch(() => null),
+      resumenDiarioService.get(user.clienteId, fecha),
     ]))
-      .then(([habits, predictions, daily, prep, adaptEstado, hist, obj]) => {
+      .then(([habits, predictions, daily, prep, adaptEstado, hist, obj, peso, resumen]) => {
         if (ignore) return;
         const hoyHabits = Array.isArray(habits) ? habits.filter((h: { fecha: string }) => h.fecha === fecha) : [];
         setHasRegistroHoy(hoyHabits.length > 0);
         const sorted = Array.isArray(predictions) ? [...predictions].sort((a, b) => new Date(b.fechaCorte).getTime() - new Date(a.fechaCorte).getTime()) : [];
         setLatest(sorted[0] ?? null);
-        setNutrition(daily);
+        setNutrition(daily && resumen ? { ...daily, componentes: daily.componentes.map(c => c.componente === "ENERGIA" ? { ...c, consumido: resumen.consumido.kcal, objetivo: resumen.objetivo.kcal, diferencia: resumen.diferenciaKcal, porcentajeCumplimiento: resumen.porcentajeKcal } : c) } : daily);
         if (prep) setPreparacion({ puedeAnalizar: prep.puedeAnalizar, xDisponibles: prep.xDisponibles, xTotal: prep.xTotal });
         else setPreparacion(null);
         if (adaptEstado?.estadoAdaptativo === "GENERADA" && adaptEstado.preguntasAdaptativas.length > 0) {
@@ -75,6 +81,7 @@ export default function ClientHomePage() {
           setConocimiento(sortedHist[0] ?? null);
         } else setConocimiento(null);
         setObjetivo(obj as ObjetivoNutricionalResponse | null);
+        setPesoEstado(peso as EstadoPesoSemanal | null);
       })
       .catch((e) => {
         if (!ignore) {
@@ -153,7 +160,7 @@ export default function ClientHomePage() {
     if (preparacion && !preparacion.puedeAnalizar) {
       return {
         title: "Completa tu registro para el análisis",
-        desc: `Preparación ${preparacion.xDisponibles}/${preparacion.xTotal} X · el sistema necesita más días registrados.`,
+        desc: preparacion.xDisponibles === 8 ? "Tu perfil está listo. El consumo de hoy se evaluará mañana y generará tu test y orientación." : "Completa el perfil y el registro de alimentos y agua del día anterior.",
         cta: "Registrar consumo",
         path: "/client/habitos",
         tone: "teal" as const,
@@ -200,6 +207,12 @@ export default function ClientHomePage() {
         </h1>
         <p className="text-sm capitalize text-slate-500">{todayLong}</p>
       </div>
+
+      {pesoEstado?.habilitado && (
+        <Card className="border-teal-200 bg-teal-50/60 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-teal-900">Actualiza tu peso semanal</p><p className="mt-1 text-xs text-teal-700">El nuevo dato ajustará las metas a partir del siguiente plan, no cambiará el día actual.</p></div><button onClick={() => navigate("/client/profile")} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white">Registrar peso</button></div>
+        </Card>
+      )}
 
       {/* Aprendizaje recomendado — solo si requiereRefuerzo, prioridad visual */}
       {aprendizaje?.requiereRefuerzo && (

@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: nutripredic
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD}
+    volumes:
+      - nutripredict_stack_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nutripredic"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  ai:
+    build:
+      context: ${AI_BUILD_CONTEXT:-../../nutripredict-ai}
+    environment:
+      NUTRIPREDICT_MODEL_PATH_V6: models/nutripredict_v6.joblib
+      NUTRIPREDICT_METADATA_PATH_V6: models/nutripredict_v6.metadata.json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 7s
+      retries: 5
+      start_period: 20s
+  backend:
+    build:
+      context: ${BACKEND_BUILD_CONTEXT:-../../Backend/nutri_predic}
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/nutripredic
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@nutripredic.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Define ADMIN_PASSWORD}
+      API_KEY_GEMINI: ${API_KEY_GEMINI:?Define API_KEY_GEMINI}
+      GEMINI_BASE_URL: https://generativelanguage.googleapis.com
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
+      GEMINI_TIMEOUT: PT30S
+      GEMINI_MOCK_ENABLED: "false"
+      NUTRIPREDICT_ML_BASE_URL: http://ai:8000
+      AI_SERVICE_URL: http://ai:8000/predict
+      CORS_ALLOWED_ORIGINS: http://localhost:8081
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+  frontend:
+    build:
+      context: .
+      args:
+        VITE_API_URL: ""
+    ports:
+      - "8081:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  nutripredict_stack_db:

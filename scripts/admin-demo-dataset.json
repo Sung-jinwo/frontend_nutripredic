@@ -1,0 +1,10 @@
+{
+  "source": "GENERATED_E2E_INPUTS",
+  "purpose": "Local administrative dashboard verification; not research or training data",
+  "cases": [
+    { "id": 1, "proteinG": 90, "carbsG": 240, "fatG": 65, "waterL": 1, "caffeineMg": 450, "answers": ["A", "A", "A", "A", "A"] },
+    { "id": 2, "proteinG": 155, "carbsG": 390, "fatG": 104, "waterL": 3, "caffeineMg": 100, "answers": ["B", "B", "B", "B", "B"] },
+    { "id": 3, "proteinG": 180, "carbsG": 480, "fatG": 150, "waterL": 2, "caffeineMg": 500, "answers": ["C", "C", "C", "C", "C"] },
+    { "id": 4, "proteinG": 135, "carbsG": 330, "fatG": 90, "waterL": 2.5, "caffeineMg": 0, "answers": ["D", "D", "D", "D", "D"] }
+  ]
+}

@@ -44,6 +44,7 @@ interface AuthContextType {
   register: (data: RegisterRequest) => Promise<void>;
   completeProfile: (data: UpdateClientRequest) => Promise<void>;
   updateProfile: (data: UpdateClientRequest) => Promise<void>;
+  refreshProfile: () => Promise<void>;
   logout: () => Promise<void>;
   clearSessionExpired: () => void;
 }
@@ -121,6 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(mergeClientProfile(currentUser, updatedClient));
   }, [user]);
 
+  const refreshProfile = useCallback(async () => {
+    if (!user?.clienteId) return;
+    const currentUser = await authService.me();
+    const cliente = await clientService.get(user.clienteId);
+    setUser(mergeClientProfile(currentUser, cliente));
+  }, [user?.clienteId]);
+
   const logout = useCallback(async () => {
     tokenStorage.clear();
     setUser(null);
@@ -170,6 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       completeProfile,
       updateProfile,
+      refreshProfile,
       logout,
       clearSessionExpired: () => setSessionExpired(false),
     }}>

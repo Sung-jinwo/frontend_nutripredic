@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calendar, Droplets, Edit2, Plus, Trash2, Utensils, Apple, Cookie, CupSoda, Pill, Wheat, X, Flame, Clock3, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { Card, SectionHeader, ProgressBar, AppModal, ConfirmModal } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
 import { alimentacionService, type AlimentoCatalogoResponse, type AlimentoUsoResponse, type MomentoComida, type RegistroAlimentoResponse } from "../../../services/alimentacion.service";
@@ -9,6 +10,7 @@ import { suplementosService, type RegistroConsumoSuplementoResponse, type Suplem
 import { unidadesService, type UnidadMedidaResponse } from "../../../services/unidades.service";
 import { resumenDiarioService, type ResumenDiarioResponse } from "../../../services/resumen-diario.service";
 import { FONT_HEADING } from "../../../types";
+import { orientacionService, type OrientacionResponse } from "../../../services/orientacion.service";
 
 type WizardType = "ALIMENTO" | "SUPLEMENTO" | "AGUA" | null;
 
@@ -126,6 +128,7 @@ export default function ClientHabitosPage() {
   const [detailFood, setDetailFood] = useState<RegistroAlimentoResponse | null>(null);
   const [confirmDeleteFood, setConfirmDeleteFood] = useState<RegistroAlimentoResponse | null>(null);
   const [confirmDeleteSup, setConfirmDeleteSup] = useState<RegistroConsumoSuplementoResponse | null>(null);
+  const [orientacion, setOrientacion] = useState<OrientacionResponse | null>(null);
 
   const todayHabit = useMemo(() => records.find((r) => r.fecha === selectedDate) ?? null, [records, selectedDate]);
   const selectedHabitual = useMemo(() => habituals.find((item) => String(item.id) === supplementSelection) ?? null, [habituals, supplementSelection]);
@@ -191,6 +194,10 @@ export default function ClientHabitosPage() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void refreshResumen(selectedDate); }, [selectedDate, refreshResumen]);
   useEffect(() => { void refreshDayDetails(); }, [refreshDayDetails]);
+  useEffect(() => {
+    if (!user?.clienteId) return;
+    void orientacionService.obtener(user.clienteId).then(setOrientacion).catch(() => setOrientacion(null));
+  }, [user?.clienteId]);
   useEffect(() => {
     if (!user?.clienteId || !todayHabit) { setHabituals([]); return; }
     void suplementosService.habituals(user.clienteId, todayHabit.fecha).then(setHabituals).catch(() => setHabituals([]));
@@ -303,6 +310,12 @@ export default function ClientHabitosPage() {
       {/* RESUMEN DEL DÍA — SSOT resumen-diario */}
       <DailyNutritionSummary resumen={resumen} loading={resumenLoading} error={resumenError} selectedDate={selectedDate} />
 
+      {selectedDate === today() && orientacion?.personalizadaDisponible && orientacion.fechaAplicacion === selectedDate && orientacion.prioridades.length > 0 && (
+        <Card className="mb-4 border-indigo-100 bg-indigo-50/40 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Adaptación para hoy</p><p className="mt-1 text-sm font-semibold text-slate-800">{orientacion.prioridades[0].titulo}</p><p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">{orientacion.prioridades[0].descripcion}</p></div><button onClick={() => navigate("/client/recomendaciones")} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700">Ver orientación completa</button></div>
+        </Card>
+      )}
+
       <div className="mb-4 flex gap-2">
         <button onClick={() => openWizard(null as any)} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#173c36] px-5 py-4 text-sm font-semibold text-white shadow-sm hover:bg-[#225148] sm:flex-none">
           <Plus size={18} /> Registrar consumo
@@ -343,7 +356,7 @@ export default function ClientHabitosPage() {
                   subtitle={`${hora ? `${hora} · ` : ""}${moments.find((m) => m.value === a.momentoComida)?.label} · ${a.cantidad} ${a.unidad} · ${a.categoria}`}
                   kcal={displayMacros?.kcal ?? null}
                   macros={displayMacros}
-                  onDetail={() => setDetailFood(a)}
+                  onDetail={() => { setDetailFood(a); toast.info("Detalle del alimento cargado."); }}
                   onEdit={() => { setEditFood(a); setFoodSearch(a.nombre); setFoodSelection(a.alimentoId == null ? "" : String(a.alimentoId)); setFoodAmount(String(a.cantidad)); setFoodUnit(a.unidad); setFoodMoment(a.momentoComida); setFoodProtein(String(a.proteinaG)); setFoodCarbs(String(a.carbohidratosG)); setFoodFat(String(a.grasasG)); setWizardType("ALIMENTO"); setWizardOpen(true); }}
                   onDelete={() => setConfirmDeleteFood(a)}
                 />
@@ -536,7 +549,8 @@ function DailyNutritionSummary({ resumen, loading, error, selectedDate }: { resu
           <MacroProgress label="Carbohidratos" consumido={resumen.consumido.carbohidratos} objetivo={resumen.objetivo.carbohidratos} unidad="g" color="bg-orange-500" />
           <MacroProgress label="Grasas" consumido={resumen.consumido.grasas} objetivo={resumen.objetivo.grasas} unidad="g" color="bg-teal-500" />
         </div>
-        <MacroProgress label="Agua" consumido={aguaMl} objetivo={aguaObjetivo ?? null} unidad="ml" color="bg-sky-500" />
+        <MacroProgress label="Hidratación" consumido={aguaMl} objetivo={aguaObjetivo ?? null} unidad="ml" color="bg-sky-500" />
+        <p className="text-xs text-slate-500">La meta de hidratación representa líquidos procedentes de bebidas, incluida el agua.</p>
         {!isDisponible && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-800">El consumo está registrado. Las cantidades objetivo aparecerán cuando exista un plan para esta fecha vinculado al análisis predictivo.</p>{resumen.objetivo.motivo && <p className="mt-1 text-xs leading-5 text-amber-700">{resumen.objetivo.motivo}</p>}</div>}
       </div>
     </Card>

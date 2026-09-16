@@ -42,3 +42,5 @@ coverage/
 # Misc
 *.tgz
 .cache/
+.e2e-runtime/
+E2E_*.md

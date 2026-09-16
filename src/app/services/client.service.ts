@@ -20,7 +20,7 @@ export const tipoObjetivoDesdeUx = (objetivo: string): TipoObjetivoFisico => {
 
 export interface UpdateClientRequest {
   edad: number;
-  pesoKg: number;
+  pesoKg?: number;
   alturaCm: number;
   objetivoFisico: string;
   tipoObjetivoFisico: TipoObjetivoFisico;

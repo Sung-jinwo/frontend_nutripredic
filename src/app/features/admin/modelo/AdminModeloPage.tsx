@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
-import { Brain, Clock, Database, RefreshCw } from "lucide-react";
+import { Brain, CheckCircle2, Clock, Database, RefreshCw } from "lucide-react";
 import { SectionHeader, Card, Badge } from "../../../components/shared";
 import { FONT_HEADING } from "../../../types";
 import { adminDatasetService } from "../../../services/admin-dataset.service";
-import { groundTruthService } from "../../../services/ground-truth.service";
 
 export default function AdminModeloPage() {
   const [calidad, setCalidad] = useState<Record<string, unknown> | null>(null);
   const [prep, setPrep] = useState<Record<string, unknown> | null>(null);
-  const [evidencia, setEvidencia] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
-  const fechaCorte = new Date().toLocaleDateString("sv-SE");
 
   const load = async () => {
     setLoading(true);
@@ -18,26 +15,23 @@ export default function AdminModeloPage() {
       const [c, p] = await Promise.all([adminDatasetService.calidad().catch(() => null), adminDatasetService.preparacion().catch(() => null)]);
       setCalidad(c as unknown as Record<string, unknown>);
       setPrep(p as unknown as Record<string, unknown>);
-      // evidencia ejemplo cliente 554
-      const ev = await groundTruthService.evidencia(554, fechaCorte).catch(() => null);
-      setEvidencia(ev as unknown as Record<string, unknown>);
     } finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, []);
 
   return (
     <div>
-      <SectionHeader title="Modelo de inteligencia artificial" subtitle="V6 técnico — LOGISTIC_REGRESSION" action={<button onClick={() => void load()} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs"><RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualizar</button>} />
+      <SectionHeader title="Modelo de inteligencia artificial" subtitle="Clasificador oficial: Random Forest" action={<button onClick={() => void load()} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs"><RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualizar</button>} />
       <Card className="mb-4 border-l-4 border-l-emerald-400 p-6">
         <div className="flex items-start gap-4">
           <Brain size={24} className="mt-1 text-emerald-600" />
           <div>
             <div className="mb-2 flex items-center gap-2">
-              <h2 className="text-lg font-bold text-slate-800" style={FONT_HEADING}>Modelo técnico de integración</h2>
-              <Badge label="LOGISTIC_REGRESSION" variant="info" />
+              <h2 className="text-lg font-bold text-slate-800" style={FONT_HEADING}>Modelo final promocionable</h2>
+              <Badge label="RANDOM_FOREST" variant="success" />
             </div>
-            <p className="text-sm text-slate-600">technical-v6-integration-001 · variables-modelo-v6 · 28/28 X · SYNTHETIC_TECHNICAL · isThesisFinalModel:false</p>
-            <p className="mt-1 text-xs text-slate-500">No es modelo final ni Random Forest. Entrenado con datos sintéticos técnicos.</p>
+            <p className="text-sm text-slate-600">Un único clasificador para ADECUADO, MEJORABLE y CRÍTICO. Las metas de kcal, macronutrientes y agua siguen calculándose mediante fórmulas nutricionales.</p>
+            <p className="mt-1 text-xs text-slate-500">Solo se activa al entrenarse con exportes reales validados. Los artefactos técnicos o sintéticos no pueden promocionarse ni presentarse como modelo final.</p>
           </div>
         </div>
       </Card>
@@ -45,19 +39,32 @@ export default function AdminModeloPage() {
         <Card className="p-5">
           <Database size={18} className="mb-3 text-slate-400" />
           <h3 className="mb-1 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Dataset V6 — calidad</h3>
-          {loading ? <p className="text-xs text-slate-500">Cargando...</p> : <pre className="max-h-40 overflow-auto rounded bg-slate-50 p-2 text-xs">{JSON.stringify(calidad, null, 2)}</pre>}
+          {loading ? <p className="text-xs text-slate-500">Cargando...</p> : <DatasetSummary data={calidad} empty="Aún no hay datos reales suficientes para validar el entrenamiento." />}
         </Card>
         <Card className="p-5">
           <Clock size={18} className="mb-3 text-slate-400" />
           <h3 className="mb-1 text-sm font-semibold text-slate-800" style={FONT_HEADING}>Preparación V6</h3>
-          {loading ? <p className="text-xs text-slate-500">Cargando...</p> : <pre className="max-h-40 overflow-auto rounded bg-slate-50 p-2 text-xs">{JSON.stringify(prep, null, 2)}</pre>}
+          {loading ? <p className="text-xs text-slate-500">Cargando...</p> : <DatasetSummary data={prep} empty="No hay una preparación de dataset disponible todavía." />}
         </Card>
       </div>
       <Card className="mt-4 p-5">
-        <h3 className="text-sm font-semibold text-slate-800" style={FONT_HEADING}>Ground Truth V6 — evidencia cliente 554 ({fechaCorte})</h3>
-        {evidencia ? <pre className="mt-2 max-h-60 overflow-auto rounded bg-slate-50 p-2 text-xs">{JSON.stringify(evidencia, null, 2)}</pre> : <p className="mt-2 text-xs text-slate-500">Sin evidencia o cliente sin datos para fecha.</p>}
-        <p className="mt-2 text-xs text-slate-500">POST /api/admin/evaluaciones-perfil/candidata-v6/clientes/{"{id}"}?fechaCorte= — backend calcula puntaje, cobertura y clasificación. Frontend no envía clasificacionReal.</p>
+        <div className="flex gap-3">
+          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800" style={FONT_HEADING}>Regla de activación</h3>
+            <p className="mt-1 text-sm text-slate-600">El entrenamiento se bloquea si faltan filas reales, clientes, fechas, clases, calidad mínima o una mejora verificable frente al baseline. Cuando pasa esas validaciones, el servicio de predicción carga únicamente el artefacto Random Forest promocionado.</p>
+          </div>
+        </div>
       </Card>
     </div>
   );
+}
+
+function DatasetSummary({ data, empty }: { data: Record<string, unknown> | null; empty: string }) {
+  if (!data) return <p className="text-xs text-slate-500">{empty}</p>;
+  const values = Object.entries(data).filter(([, value]) => typeof value !== "object");
+  if (!values.length) return <p className="text-xs text-slate-500">{empty}</p>;
+  return <dl className="space-y-1.5 text-xs text-slate-600">
+    {values.map(([key, value]) => <div key={key} className="flex justify-between gap-3"><dt className="capitalize">{key.replace(/([A-Z])/g, " $1")}</dt><dd className="font-semibold text-slate-800">{String(value)}</dd></div>)}
+  </dl>;
 }

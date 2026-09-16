@@ -67,7 +67,7 @@ export interface SesionConocimientoResponse {
   estadoAdaptativo: EstadoSesionAdaptativa;
   fechaEvaluacion: string;
   objetivoCliente: string;
-  clasificacionPredictiva: string;
+  clasificacionPredictiva: string | null;
   metaNutricional: {
     planDiarioId: number | null;
     fechaObjetivo: string | null;
@@ -91,13 +91,14 @@ export interface ResponderConocimientoIaRequest {
 }
 
 export const conocimientoIaService = {
+  inicial: (clienteId: number) => api.post<SesionConocimientoResponse>(`/api/clientes/${clienteId}/conocimiento/inicial/asegurar`, {}, { notifySuccess: false }),
   generar: (clienteId: number, request: GenerarConocimientoIaRequest) =>
     api.post<SesionConocimientoResponse>(
       `/api/clientes/${clienteId}/conocimiento/post-modelo/generar`,
       request,
     ),
   obtener: (clienteId: number, fecha?: string) =>
-    api.get<SesionConocimientoResponse>(`/api/clientes/${clienteId}/conocimiento/post-modelo${fecha ? `?fecha=${encodeURIComponent(fecha)}` : ""}`),
+    api.get<SesionConocimientoResponse>(`/api/clientes/${clienteId}/conocimiento/post-modelo${fecha ? `?fecha=${encodeURIComponent(fecha)}` : ""}`, { silentStatuses: [404] }),
   responder: (clienteId: number, sesionId: number, request: ResponderConocimientoIaRequest) =>
     api.post<ResultadoAdaptativoResponse>(
       `/api/clientes/${clienteId}/conocimiento/post-modelo/${sesionId}/respuestas`,

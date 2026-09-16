@@ -1,10 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Check } from "lucide-react";
+import { toast } from "sonner";
+import { Check, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import { AppModal, Badge, SectionHeader, Card } from "../../../components/shared";
 import { ObjetivoNutricionalCard } from "../../../components/shared/ObjetivoNutricionalCard";
 import { FONT_HEADING, FONT_MONO } from "../../../types";
 import { useAuth } from "../../../context/AuthContext";
 import { tipoObjetivoDesdeUx, type TipoEntrenamiento } from "../../../services/client.service";
+import { ApiError } from "../../../services/api";
+import { pesoSemanalService, type EstadoPesoSemanal } from "../../../services/peso-semanal.service";
 
 const H = FONT_HEADING;
 const MONO = FONT_MONO;
@@ -49,11 +52,17 @@ type ProfileForm = {
 };
 
 export default function ClientProfilePage() {
-  const { user, updateProfile, profileComplete } = useAuth();
+  const { user, updateProfile, refreshProfile, profileComplete } = useAuth();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [pesoEstado, setPesoEstado] = useState<EstadoPesoSemanal | null>(null);
+  const [nuevoPeso, setNuevoPeso] = useState("");
+  const [guardandoPeso, setGuardandoPeso] = useState(false);
+  const [confirmarPeso, setConfirmarPeso] = useState(false);
+  const [mensajePeso, setMensajePeso] = useState("");
+  const [errorPeso, setErrorPeso] = useState("");
   const [form, setForm] = useState<ProfileForm>({
     edad: "",
     pesoKg: "",
@@ -83,6 +92,31 @@ export default function ClientProfilePage() {
     setEditing(!profileComplete);
   }, [profileComplete, user]);
 
+  useEffect(() => {
+    if (!user?.clienteId) return;
+    void pesoSemanalService.estado(user.clienteId).then(setPesoEstado).catch(() => setPesoEstado(null));
+  }, [user?.clienteId]);
+
+  const registrarPeso = async (confirmado = false) => {
+    if (!user?.clienteId || !(Number(nuevoPeso) >= 1 && Number(nuevoPeso) <= 500)) {
+      setErrorPeso("Ingresa un peso válido entre 1 y 500 kg.");
+      toast.error("Ingresa un peso válido entre 1 y 500 kg.");
+      return;
+    }
+    setGuardandoPeso(true); setErrorPeso(""); setMensajePeso("");
+    try {
+      const estado = await pesoSemanalService.registrar(user.clienteId, Number(nuevoPeso), confirmado);
+      setPesoEstado(estado); setNuevoPeso(""); setConfirmarPeso(false);
+      setMensajePeso("Peso semanal guardado. Las nuevas metas se aplicarán desde el siguiente plan diario.");
+      await refreshProfile();
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409 && cause.message.includes("CONFIRMAR_CAMBIO_PESO")) {
+        setConfirmarPeso(true);
+        setErrorPeso("El cambio es de 5 % o más. Confirma que el peso ingresado es correcto.");
+      } else setErrorPeso(cause instanceof Error ? cause.message : "No se pudo guardar el peso.");
+    } finally { setGuardandoPeso(false); }
+  };
+
   const initials = (user?.nombre ?? "Usuario").split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
   const duracionTotal = Number(form.duracionPromedioSesionMinutos) || 0;
   const duracionHoras = Math.floor(duracionTotal / 60);
@@ -99,7 +133,7 @@ export default function ClientProfilePage() {
   );
   const sexoValid = form.sexo === "" || form.sexo === "MASCULINO" || form.sexo === "FEMENINO";
   const valid =
-    Number(form.edad) >= 1 &&
+    Number(form.edad) >= 13 &&
     Number(form.edad) <= 120 &&
     Number(form.pesoKg) >= 1 &&
     Number(form.pesoKg) <= 500 &&
@@ -113,13 +147,16 @@ export default function ClientProfilePage() {
   const save = async () => {
     if (!valid) {
       const faltantes: string[] = [];
-      if (!(Number(form.edad) >= 1 && Number(form.edad) <= 120)) faltantes.push("edad (1-120)");
+      if (!(Number(form.edad) >= 13 && Number(form.edad) <= 120)) faltantes.push("edad (13-120)");
       if (!(Number(form.pesoKg) >= 1 && Number(form.pesoKg) <= 500)) faltantes.push("peso (1-500 kg)");
       if (!(Number(form.alturaCm) >= 30 && Number(form.alturaCm) <= 300)) faltantes.push("altura (30-300 cm)");
       if (!(form.objetivoFisico.trim().length >= 2 && form.objetivoFisico.trim().length <= 120)) faltantes.push("objetivo (2-120 caracteres)");
       if (!sexoValid) faltantes.push("sexo (Masculino o Femenino)");
       if (!activityValid) faltantes.push("datos de actividad física (días, actividad, entrenamiento y duración)");
-      return setError(`Completa los campos: ${faltantes.join(", ")}.`);
+      const aviso = `Completa los campos: ${faltantes.join(", ")}.`;
+      setError(aviso);
+      toast.error(aviso);
+      return;
     }
     setSaving(true);
     setError("");
@@ -133,7 +170,6 @@ export default function ClientProfilePage() {
       // No se envía objetivoEnergetico — lo deriva el backend. No se calculan kcal aquí.
       await updateProfile({
         edad: Number(form.edad),
-        pesoKg: Number(form.pesoKg),
         alturaCm: Number(form.alturaCm),
         objetivoFisico: form.objetivoFisico.trim(),
         tipoObjetivoFisico: tipoObjetivoDesdeUx(form.objetivoFisico.trim()),
@@ -176,6 +212,18 @@ export default function ClientProfilePage() {
         )}
       </Card>
     </div>
+    <Card className="mb-5 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex gap-3"><div className="rounded-xl bg-teal-50 p-2.5 text-teal-700"><Scale size={20}/></div><div><h4 className="text-sm font-semibold text-slate-800" style={H}>Seguimiento semanal de peso</h4><p className="mt-1 text-xs text-slate-500">Regístralo una vez por semana, con la misma balanza y en condiciones similares.</p></div></div>
+        {pesoEstado?.variacionKg != null && <div className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${pesoEstado.variacionKg > 0 ? "bg-amber-50 text-amber-700" : pesoEstado.variacionKg < 0 ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"}`}>{pesoEstado.variacionKg > 0 ? <TrendingUp size={13}/> : <TrendingDown size={13}/>} {pesoEstado.variacionKg > 0 ? "+" : ""}{pesoEstado.variacionKg} kg</div>}
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label="Peso medido (kg)"><input type="number" min="1" max="500" step="0.01" value={nuevoPeso} onChange={e => { setNuevoPeso(e.target.value); setConfirmarPeso(false); }} disabled={pesoEstado != null && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE")} className={input}/></Field>
+        <button onClick={() => void registrarPeso(confirmarPeso)} disabled={guardandoPeso || !nuevoPeso || (pesoEstado != null && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE"))} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{guardandoPeso ? "Guardando..." : confirmarPeso ? "Confirmar y guardar" : "Guardar peso"}</button>
+      </div>
+      {pesoEstado && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE") && <p className="mt-3 text-xs text-slate-500">Próximo registro disponible: {new Date(`${pesoEstado.proximaFecha}T00:00:00`).toLocaleDateString("es-PE", { dateStyle: "long" })}.</p>}
+      {mensajePeso && <p className="mt-3 text-xs text-emerald-700">{mensajePeso}</p>}{errorPeso && <p role="alert" className="mt-3 text-xs text-rose-700">{errorPeso}</p>}
+    </Card>
     <ObjetivoNutricionalCard clienteId={user?.clienteId} objetivoFisicoFallback={normalizeObjetivo(user?.objetivoFisico)} />
     <Card className="border-dashed p-6 text-center"><h4 className="mb-2 text-sm font-semibold text-slate-800" style={H}>Datos relevantes del análisis</h4><p className="text-sm text-slate-500">Consulta el resultado oficial y su trazabilidad en la sección <strong>Mi análisis</strong>.</p></Card>
     <AppModal
@@ -186,7 +234,7 @@ export default function ClientProfilePage() {
       footer={<><button onClick={() => setEditing(false)} disabled={saving} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700">Cancelar</button><button onClick={() => void save()} disabled={!valid || saving} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45">{saving ? "Guardando..." : "Guardar cambios"}</button></>}
     >
       {error && <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3"><Field label="Edad (13–120)"><input aria-label="Edad" type="number" min="13" max="120" value={form.edad} onChange={e => setForm(current => ({ ...current, edad: e.target.value }))} className={input} /></Field><Field label="Peso (kg)"><input aria-label="Peso actual en kg" type="number" min="1" max="500" step="0.01" value={form.pesoKg} onChange={e => setForm(current => ({ ...current, pesoKg: e.target.value }))} className={input} /></Field><Field label="Altura (cm)"><input aria-label="Altura en cm" type="number" min="30" max="300" step="0.01" value={form.alturaCm} onChange={e => setForm(current => ({ ...current, alturaCm: e.target.value }))} className={input} /></Field></div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3"><Field label="Edad (13–120)"><input aria-label="Edad" type="number" min="13" max="120" value={form.edad} onChange={e => setForm(current => ({ ...current, edad: e.target.value }))} className={input} /></Field><Field label="Peso (seguimiento semanal)"><input aria-label="Peso actual en kg" type="number" value={form.pesoKg} disabled className={`${input} bg-slate-50 text-slate-500`} /></Field><Field label="Altura (cm)"><input aria-label="Altura en cm" type="number" min="30" max="300" step="0.01" value={form.alturaCm} onChange={e => setForm(current => ({ ...current, alturaCm: e.target.value }))} className={input} /></Field></div>
 
       <div className="mt-4">
         <span className="mb-2 block text-xs font-semibold text-slate-600">Sexo biológico</span>

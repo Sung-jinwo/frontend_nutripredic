@@ -1,7 +1,10 @@
+import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { BREADCRUMBS, type View } from "../types";
 import { ChevronRight } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
+import { analisisPredictivoService } from "../services/analisis-predictivo.service";
 
 const PATH_TO_VIEW: Record<string, View> = {
   "/client/home": "client-home",
@@ -25,8 +28,31 @@ const PATH_TO_VIEW: Record<string, View> = {
 
 export function AppLayout() {
   const location = useLocation();
+  const { user, profileComplete } = useAuth();
   const view = PATH_TO_VIEW[location.pathname] || "client-home";
   const breadcrumb = BREADCRUMBS[view] || "";
+
+  useEffect(() => {
+    if (user?.rol !== "CLIENTE" || !user.clienteId || !profileComplete) return;
+    const fecha = new Date().toLocaleDateString("sv-SE");
+    const key = `nutripredict:ciclo-diario:${user.clienteId}:${fecha}`;
+    if (sessionStorage.getItem(key)) return;
+    const publish = (result: Awaited<ReturnType<typeof analisisPredictivoService.estadoCicloDiario>>) => {
+        if (result.estado === "COMPLETADO") sessionStorage.setItem(key, "1");
+        window.dispatchEvent(new CustomEvent("nutripredict:ciclo-diario-actualizado", { detail: result }));
+    };
+    void analisisPredictivoService.estadoCicloDiario(user.clienteId)
+      .then(async estado => {
+        // El primer ingreso inicia el ciclo. Un ciclo fallido o ya iniciado sólo se
+        // reintenta mediante la acción explícita de la vista Análisis.
+        if (estado.estado === "PENDIENTE" && estado.prediccionId == null) {
+          publish(await analisisPredictivoService.asegurarCicloDiario(user.clienteId!));
+          return;
+        }
+        publish(estado);
+      })
+      .catch(() => undefined);
+  }, [profileComplete, user?.clienteId, user?.rol]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f3ed]" style={{ fontFamily: "'Inter', sans-serif" }}>
