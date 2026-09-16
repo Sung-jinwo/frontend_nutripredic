@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calendar, Droplets, Edit2, Plus, Trash2, Utensils, Apple, Cookie, CupSoda, Pill, Wheat, X, Flame, Clock3, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import { toast } from "../../../services/notifications";
+import { OperationNotice } from "../../../components/shared/OperationNotice";
 import { Card, SectionHeader, ProgressBar, AppModal, ConfirmModal } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
 import { alimentacionService, type AlimentoCatalogoResponse, type AlimentoUsoResponse, type MomentoComida, type RegistroAlimentoResponse } from "../../../services/alimentacion.service";
@@ -305,7 +306,7 @@ export default function ClientHabitosPage() {
         action={<input type="date" value={selectedDate} max={today()} onChange={(e) => setSelectedDate(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" aria-label="Fecha del registro" />}
       />
 
-      {error && <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+      <OperationNotice message={error}/>
 
       {/* RESUMEN DEL DÍA — SSOT resumen-diario */}
       <DailyNutritionSummary resumen={resumen} loading={resumenLoading} error={resumenError} selectedDate={selectedDate} />
@@ -514,7 +515,7 @@ function DailyNutritionSummary({ resumen, loading, error, selectedDate }: { resu
     return <Card className="mb-5 p-5"><div className="space-y-3"><div className="h-6 w-32 animate-pulse rounded bg-slate-100" /><div className="grid gap-3 sm:grid-cols-2">{[1,2,3,4].map(i=> <div key={i} className="h-20 animate-pulse rounded-xl bg-slate-50"/> )}</div></div></Card>;
   }
   if (error) {
-    return <Card className="mb-5 border-amber-200 bg-amber-50 p-4"><p className="text-sm font-medium text-amber-800">No se pudo cargar el resumen</p><p className="text-xs text-amber-700">{error}</p></Card>;
+    return <><OperationNotice message={error}/><Card className="mb-5 p-4"><p className="text-sm text-muted-foreground">Resumen no disponible. Vuelve a consultar el día; el detalle está en Notificaciones.</p></Card></>;
   }
   if (!resumen) {
     return <Card className="mb-5 border-dashed p-6 text-center"><p className="text-sm text-slate-500">Resumen no disponible para {selectedDate}.</p></Card>;

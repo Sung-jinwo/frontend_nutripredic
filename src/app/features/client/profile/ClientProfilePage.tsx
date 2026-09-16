@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { toast } from "sonner";
+import { toast } from "../../../services/notifications";
 import { Check, Scale, TrendingDown, TrendingUp } from "lucide-react";
-import { AppModal, Badge, SectionHeader, Card } from "../../../components/shared";
+import { AppModal, Badge, SectionHeader, Card, OperationNotice } from "../../../components/shared";
 import { ObjetivoNutricionalCard } from "../../../components/shared/ObjetivoNutricionalCard";
 import { FONT_HEADING, FONT_MONO } from "../../../types";
 import { useAuth } from "../../../context/AuthContext";
@@ -100,7 +100,6 @@ export default function ClientProfilePage() {
   const registrarPeso = async (confirmado = false) => {
     if (!user?.clienteId || !(Number(nuevoPeso) >= 1 && Number(nuevoPeso) <= 500)) {
       setErrorPeso("Ingresa un peso válido entre 1 y 500 kg.");
-      toast.error("Ingresa un peso válido entre 1 y 500 kg.");
       return;
     }
     setGuardandoPeso(true); setErrorPeso(""); setMensajePeso("");
@@ -113,7 +112,7 @@ export default function ClientProfilePage() {
       if (cause instanceof ApiError && cause.status === 409 && cause.message.includes("CONFIRMAR_CAMBIO_PESO")) {
         setConfirmarPeso(true);
         setErrorPeso("El cambio es de 5 % o más. Confirma que el peso ingresado es correcto.");
-      } else setErrorPeso(cause instanceof Error ? cause.message : "No se pudo guardar el peso.");
+      } else toast.error(cause instanceof Error ? cause.message : "No se pudo guardar el peso.");
     } finally { setGuardandoPeso(false); }
   };
 
@@ -155,7 +154,6 @@ export default function ClientProfilePage() {
       if (!activityValid) faltantes.push("datos de actividad física (días, actividad, entrenamiento y duración)");
       const aviso = `Completa los campos: ${faltantes.join(", ")}.`;
       setError(aviso);
-      toast.error(aviso);
       return;
     }
     setSaving(true);
@@ -183,7 +181,7 @@ export default function ClientProfilePage() {
       setEditing(false);
       setMessage("Perfil actualizado correctamente.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo actualizar el perfil.");
+      toast.error(cause instanceof Error ? cause.message : "No se pudo actualizar el perfil.");
     } finally {
       setSaving(false);
     }
@@ -196,7 +194,7 @@ export default function ClientProfilePage() {
 
   return <div>
     <SectionHeader title="Mi Perfil" subtitle={profileComplete ? "Información personal y actividad básica" : "Completa tus datos para continuar"} action={!editing ? <button onClick={() => { setEditing(true); setMessage(""); }} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Editar perfil</button> : undefined} />
-    {message && <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</div>}{error && <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+    <OperationNotice message={message} kind="success"/>
     <div className="grid grid-cols-1 gap-4 mb-5 lg:grid-cols-3">
       <Card className="p-6 text-center"><div className="w-20 h-20 rounded-full bg-gradient-to-br from-teal-400 to-indigo-500 mx-auto flex items-center justify-center text-white text-2xl font-bold mb-4">{initials}</div><h3 className="font-semibold text-slate-800 text-lg mb-0.5" style={H}>{user?.nombre}</h3><p className="text-sm text-slate-500 mb-4">{user?.email}</p><div className="flex flex-wrap justify-center gap-2"><Badge label={user?.activo ? "Activo" : "Inactivo"} variant={user?.activo ? "success" : "neutral"} /><Badge label="Cliente" variant="info" /></div></Card>
       <Card className="p-6 lg:col-span-2"><h4 className="font-semibold text-slate-800 text-sm mb-5" style={H}>Datos personales</h4><div className="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2">{[["Nombre", user?.nombre ?? "No disponible"], ["Email", user?.email ?? "No disponible"], ["Edad", user?.edad != null ? `${user.edad} años` : "No disponible"], ["Peso", user?.pesoKg != null ? `${user.pesoKg} kg` : "No disponible"], ["Altura", user?.alturaCm != null ? `${user.alturaCm} cm` : "No disponible"], ["IMC", user?.imc != null ? user.imc.toFixed(2) : "No disponible"], ["Objetivo", normalizeObjetivo(user?.objetivoFisico) || "No disponible"], ["Sexo", (user?.sexo ?? user?.sexoBiologico) ?? "No disponible"], ["Actividad física", user?.realizaActividadFisica ? `${user?.diasEntrenamientoSemana ?? "—"} días/semana` : user?.realizaActividadFisica === false ? "No realiza" : "No disponible"], ["Tipo de actividad", user?.realizaActividadFisica ? user?.tipoActividadFisica ?? "No disponible" : "—"], ["Tipo de entrenamiento", user?.realizaActividadFisica ? user?.tipoEntrenamiento ?? "No disponible" : "—"], ["Duración por sesión", user?.realizaActividadFisica ? user?.duracionPromedioSesionMinutos != null ? `${user.duracionPromedioSesionMinutos} min` : "No disponible" : "—"]].map(([label, val]) => <div key={label} className="flex items-center justify-between border-b border-slate-50 pb-3"><span className="text-xs text-slate-500 font-medium">{label}</span><span className="text-sm text-slate-800 font-medium" style={MONO}>{val}</span></div>)}</div>
@@ -222,7 +220,7 @@ export default function ClientProfilePage() {
         <button onClick={() => void registrarPeso(confirmarPeso)} disabled={guardandoPeso || !nuevoPeso || (pesoEstado != null && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE"))} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{guardandoPeso ? "Guardando..." : confirmarPeso ? "Confirmar y guardar" : "Guardar peso"}</button>
       </div>
       {pesoEstado && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE") && <p className="mt-3 text-xs text-slate-500">Próximo registro disponible: {new Date(`${pesoEstado.proximaFecha}T00:00:00`).toLocaleDateString("es-PE", { dateStyle: "long" })}.</p>}
-      {mensajePeso && <p className="mt-3 text-xs text-emerald-700">{mensajePeso}</p>}{errorPeso && <p role="alert" className="mt-3 text-xs text-rose-700">{errorPeso}</p>}
+      <OperationNotice message={mensajePeso} kind="success"/>{errorPeso && <p role="alert" className="mt-3 text-xs text-rose-700">{errorPeso}</p>}
     </Card>
     <ObjetivoNutricionalCard clienteId={user?.clienteId} objetivoFisicoFallback={normalizeObjetivo(user?.objetivoFisico)} />
     <Card className="border-dashed p-6 text-center"><h4 className="mb-2 text-sm font-semibold text-slate-800" style={H}>Datos relevantes del análisis</h4><p className="text-sm text-slate-500">Consulta el resultado oficial y su trazabilidad en la sección <strong>Mi análisis</strong>.</p></Card>

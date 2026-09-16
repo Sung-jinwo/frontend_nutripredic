@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Activity, AlertCircle, Clock, Edit2, Pill, Plus, Utensils } from "lucide-react";
+import { OperationNotice } from "../../../components/shared/OperationNotice";
 import { AppModal, Badge, Card, ConfirmModal, KPICard, SectionHeader, StateBadge } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
 import { FONT_HEADING } from "../../../types";
@@ -63,7 +64,7 @@ export default function ClientSuplementosPage() {
 
   return <div>
     <SectionHeader title="Mis suplementos" subtitle="Catálogo personal — qué productos utilizas habitualmente. El consumo diario se registra en Mi alimentación." action={<button onClick={() => setOpen(true)} className="flex items-center gap-2 rounded-xl bg-[#173c36] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#225148]"><Plus size={14} /> Añadir suplemento</button>} />
-    {error && <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+    <OperationNotice message={error}/>
 
     {/* Explicación conexión — §12 */}
     <Card className="mb-4 border-indigo-100 bg-indigo-50/40 p-4">

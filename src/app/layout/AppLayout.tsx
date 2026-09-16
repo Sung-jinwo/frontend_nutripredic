@@ -1,10 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
+import { NotificationCenter } from "../components/shared/NotificationCenter";
 import { BREADCRUMBS, type View } from "../types";
 import { ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { analisisPredictivoService } from "../services/analisis-predictivo.service";
+import { indicadoresService } from "../services/indicadores.service";
 
 const PATH_TO_VIEW: Record<string, View> = {
   "/client/home": "client-home",
@@ -31,6 +33,15 @@ export function AppLayout() {
   const { user, profileComplete } = useAuth();
   const view = PATH_TO_VIEW[location.pathname] || "client-home";
   const breadcrumb = BREADCRUMBS[view] || "";
+  const [demoStatus, setDemoStatus] = useState<Awaited<ReturnType<typeof indicadoresService.demoStatus>> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setDemoStatus(null);
+    if (user?.rol === "ADMIN") void indicadoresService.demoStatus()
+      .then(status => { if (active) setDemoStatus(status); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [user?.id, user?.rol, location.pathname]);
 
   useEffect(() => {
     if (user?.rol !== "CLIENTE" || !user.clienteId || !profileComplete) return;
@@ -64,8 +75,10 @@ export function AppLayout() {
             <ChevronRight size={14} className="text-slate-300" aria-hidden="true" />
             <span className="font-medium text-[#173c36]">{breadcrumb}</span>
           </div>
+          <NotificationCenter />
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          {user?.rol === "ADMIN" && demoStatus && (demoStatus.enabled || demoStatus.demoUsers > 0) && <aside className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">Muestra de demostración · {demoStatus.demoUsers} clientes de prueba</p><p className="mt-1 text-xs">{demoStatus.message}</p>{demoStatus.enabled && <p className="mt-2 text-xs">Precarga: {demoStatus.state === "COMPLETADO" ? "completada" : demoStatus.state === "PARCIAL" ? "parcial; revisa los logs de IA/Gemini" : "en preparación"} · {demoStatus.completedCycles}/4 ciclos completos en este arranque.</p>}</aside>}
           <Outlet />
         </main>
       </div>

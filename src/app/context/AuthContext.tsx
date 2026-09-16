@@ -5,6 +5,7 @@ import { authService, type LoginRequest, type RegisterRequest, type User } from 
 import { SESSION_EXPIRED_EVENT, tokenStorage } from "../services/api";
 import { clientService, type ClienteResponse, type UpdateClientRequest } from "../services/client.service";
 import { planDiarioService } from "../services/plan-diario.service";
+import { setNotificationUser } from "../services/notifications";
 
 function mergeClientProfile(currentUser: User, cliente: ClienteResponse): User {
   return {
@@ -73,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const establishSession = useCallback((token: string, authenticatedUser: User, redirect = true) => {
     tokenStorage.set(token);
+    setNotificationUser(authenticatedUser.id);
     setUser(authenticatedUser);
     setSessionExpired(false);
     if (redirect) navigate(
@@ -117,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateProfile = useCallback(async (data: UpdateClientRequest) => {
     if (!user?.clienteId) throw new Error("No se encontró el perfil de cliente.");
-    const updatedClient = await clientService.update(user.clienteId, data);
+    const updatedClient = await clientService.update(user.clienteId, data, false);
     const currentUser = await authService.me();
     setUser(mergeClientProfile(currentUser, updatedClient));
   }, [user]);
@@ -130,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.clienteId]);
 
   const logout = useCallback(async () => {
+    setNotificationUser(null);
     tokenStorage.clear();
     setUser(null);
     setSessionExpired(false);
@@ -145,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const currentUser = await hydrateClientProfile(await authService.me());
-        if (active) setUser(currentUser);
+        if (active) { setNotificationUser(currentUser.id); setUser(currentUser); }
       } catch {
         tokenStorage.clear();
       } finally {
@@ -158,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const expire = () => {
+      setNotificationUser(null);
       setUser(null);
       setSessionExpired(true);
       navigate("/login", { replace: true });

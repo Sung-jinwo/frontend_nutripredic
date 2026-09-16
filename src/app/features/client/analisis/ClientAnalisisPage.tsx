@@ -14,7 +14,8 @@ import {
 } from "../../../services/analisis-predictivo.service";
 import { conocimientoIaService, type SesionConocimientoResponse } from "../../../services/conocimiento-ia.service";
 import { FONT_HEADING, FONT_MONO } from "../../../types";
-import { toast } from "sonner";
+import { toast } from "../../../services/notifications";
+import { OperationNotice } from "../../../components/shared/OperationNotice";
 
 const today = () => new Date().toLocaleDateString("sv-SE");
 const labels: Record<ClasificacionPredictiva, string> = {
@@ -203,7 +204,7 @@ export default function ClientAnalisisPage() {
       )}
     </Card>
     {loading && <Card className="p-10 text-center"><RefreshCw size={28} className="mx-auto mb-3 animate-spin text-indigo-500" /><h2 className="text-sm font-semibold text-slate-700">Procesando análisis</h2><p className="mt-1 text-xs text-slate-500">Evaluando el registro real del día anterior...</p></Card>}
-    {!loading && error && <Card className={`border-l-4 p-6 ${unavailable ? "border-l-amber-400" : "border-l-rose-400"}`}><div className="flex items-start gap-3"><AlertTriangle size={20} className={unavailable ? "text-amber-500" : "text-rose-500"} /><div><h2 className="text-sm font-semibold text-slate-800">{unavailable ? "Modelo no disponible" : "No se pudo ejecutar el análisis"}</h2><p className="mt-1 text-sm text-slate-600">{error}</p></div></div></Card>}
+    {!loading && error && <><OperationNotice message={error}/><Card className="p-6"><p className="text-sm text-muted-foreground">{unavailable ? "Modelo no disponible" : "Análisis no disponible"}. Consulta el detalle en Notificaciones y vuelve a intentarlo.</p></Card></>}
     {!loading && !error && !result && latestPrediction && <Card className="p-6"><div className="flex items-start gap-3"><Database size={22} className="mt-0.5 text-indigo-500" /><div><h2 className="text-sm font-semibold text-slate-800">Última predicción guardada</h2><p className="mt-1 text-xs text-slate-500">El modelo tardó <strong className="text-slate-800">{Number(latestPrediction.inferenceMs ?? 0).toLocaleString("es-PE", { maximumFractionDigits: 2 })} ms</strong> en generar la predicción del {new Date(`${latestPrediction.fechaCorte}T00:00:00`).toLocaleDateString("es-PE")}.</p><p className="mt-2 text-[11px] text-slate-400">{latestPrediction.modelVersion} · {latestPrediction.schemaVersion}</p></div></div></Card>}
     {!loading && !error && !result && !latestPrediction && <Card className="border-dashed p-10 text-center"><Database size={28} className="mx-auto mb-3 text-slate-300" /><h2 className="text-sm font-semibold text-slate-700">Sin evaluación diaria disponible</h2><p className="mx-auto mt-1 max-w-xl text-xs text-slate-500">Registra durante un día tus alimentos y agua. Al día siguiente podrás obtener una clasificación basada en ese consumo real.</p></Card>}
     {!loading && result && <div className="space-y-4">

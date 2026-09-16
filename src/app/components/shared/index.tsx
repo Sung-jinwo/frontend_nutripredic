@@ -1,5 +1,7 @@
 import { AlertCircle, ArrowDown, ArrowUp, Inbox, LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
+import { OperationNotice } from "./OperationNotice";
+export { OperationNotice } from "./OperationNotice";
 import { FONT_HEADING } from "../../types";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -105,7 +107,7 @@ export function LoadingState({ label = "Cargando información..." }: { label?: s
 }
 
 export function ErrorState({ message }: { message: string }) {
-  return <div role="alert" className="flex gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"><AlertCircle size={18} className="mt-0.5 shrink-0" /><p>{message}</p></div>;
+  return <><OperationNotice message={message}/><EmptyState icon={AlertCircle} title="No se pudo cargar la información" description="Puedes volver a consultar esta vista. El detalle del error está en Notificaciones."/></>;
 }
 
 export function DataTable({ children, className = "" }: { children: ReactNode; className?: string }) {

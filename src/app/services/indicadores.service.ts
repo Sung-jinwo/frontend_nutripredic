@@ -38,6 +38,7 @@ export interface DashboardResponse {
 }
 
 export const indicadoresService = {
+  demoStatus: () => api.get<{ enabled: boolean; demoUsers: number; state: string; completedCycles: number; message: string }>("/api/admin/demo-data/status", { silentStatuses: [404] }),
   pcc: () => api.get<PccIndicatorResponse>("/api/admin/indicadores/pcc"),
   pcs: () => api.get<PcsIndicatorResponse>("/api/admin/indicadores/pcs"),
   tpp: () => api.get<TppIndicatorResponse>("/api/admin/indicadores/tpp"),

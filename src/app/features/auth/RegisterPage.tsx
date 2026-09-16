@@ -5,6 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 import { FONT_HEADING } from "../../types";
 import { ObjetivoOnboardingResult } from "../../components/shared/ObjetivoNutricionalCard";
 import { tipoObjetivoDesdeUx, type TipoEntrenamiento } from "../../services/client.service";
+import { toast } from "../../services/notifications";
 
 /**
  * FASE UX-2 — Onboarding en 3 pasos
@@ -98,7 +99,7 @@ export default function RegisterPage() {
       setAccountCreated(true);
       setStep(2);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo crear la cuenta.");
+      toast.error(cause instanceof Error ? cause.message : "No se pudo crear la cuenta.");
     } finally {
       setLoading(false);
     }
@@ -140,7 +141,7 @@ export default function RegisterPage() {
       });
       setCompleted(true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo completar el perfil.");
+      toast.error(cause instanceof Error ? cause.message : "No se pudo completar el perfil.");
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,7 @@ import { ArrowRight, Brain, ClipboardCheck, LockKeyhole } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { FONT_HEADING } from "../../types";
+import { OperationNotice } from "../../components/shared/OperationNotice";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -61,7 +62,7 @@ export default function LoginPage() {
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate>
             {auth.sessionExpired && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Tu sesión expiró. Inicia sesión nuevamente.</div>}
-            {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+            <OperationNotice message={error}/>
             <label className="block text-sm font-medium text-slate-700" htmlFor="login-email">Correo electrónico
               <input id="login-email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" disabled={loading} aria-invalid={Boolean(emailError)} aria-describedby={emailError ? "login-email-error" : undefined} placeholder="nombre@correo.com" className={`mt-2 w-full rounded-xl border bg-white px-4 py-3 text-sm shadow-[0_1px_0_rgba(15,23,42,.04)] outline-none transition focus:ring-3 ${emailError ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100" : "border-slate-200 focus:border-[#397065] focus:ring-emerald-100"}`} />
               {emailError && <span id="login-email-error" className="mt-1.5 block text-xs font-normal text-rose-600">{emailError}</span>}

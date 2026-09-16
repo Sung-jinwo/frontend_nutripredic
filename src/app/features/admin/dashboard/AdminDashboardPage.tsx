@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { AlertTriangle, Brain, CheckCircle2, Clock3, RefreshCw, ShieldAlert } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
+import { OperationNotice } from "../../../components/shared/OperationNotice";
 import { DashboardResponse, EstadoDisponibilidad, indicadoresService } from "../../../services/indicadores.service";
 
 function formatPercent(value: number | null): string {
@@ -84,7 +85,7 @@ export default function AdminDashboardPage() {
   const priorities = useMemo(() => dashboard ? buildPriorities(dashboard) : [], [dashboard]);
 
   if (loading) return <div className="flex min-h-[420px] items-center justify-center"><div className="text-center"><RefreshCw className="mx-auto h-8 w-8 animate-spin text-teal-700" /><p className="mt-3 text-sm font-medium text-slate-600">Cargando indicadores administrativos…</p></div></div>;
-  if (error || !dashboard) return <Card className="border-red-200 bg-red-50"><CardContent className="flex flex-col items-center gap-3 py-10 text-center"><ShieldAlert className="h-9 w-9 text-red-600" /><p className="font-semibold text-red-800">No fue posible cargar el dashboard</p><p className="max-w-xl text-sm text-red-700">{error || "Respuesta vacía del backend."}</p><Button variant="outline" onClick={() => void loadDashboard()}><RefreshCw className="mr-2 h-4 w-4" /> Reintentar</Button></CardContent></Card>;
+  if (error || !dashboard) return <><OperationNotice message={error || "Respuesta vacía del backend."}/><Card><CardContent className="flex flex-col items-center gap-3 py-10 text-center"><ShieldAlert className="h-9 w-9 text-muted-foreground" /><p className="font-semibold">No fue posible cargar el dashboard</p><p className="text-sm text-muted-foreground">Consulta el detalle en Notificaciones.</p><Button variant="outline" onClick={() => void loadDashboard()}><RefreshCw className="mr-2 h-4 w-4" /> Reintentar</Button></CardContent></Card></>;
 
   const { pcc, pcs, tpp } = dashboard;
   return <div className="space-y-6">

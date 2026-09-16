@@ -12,7 +12,7 @@ import {
 } from "../../../services/orientacion.service";
 import type { ClasificacionPredictiva } from "../../../services/analisis-predictivo.service";
 import { resumenDiarioService, type ResumenDiarioResponse } from "../../../services/resumen-diario.service";
-import { toast } from "sonner";
+import { toast } from "../../../services/notifications";
 
 const labels: Record<ClasificacionPredictiva, string> = {
   ADECUADO: "Adecuado",

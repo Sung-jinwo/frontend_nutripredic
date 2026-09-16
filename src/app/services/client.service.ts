@@ -57,6 +57,6 @@ export interface ClienteResponse {
 export const clientService = {
   get: (clienteId: number) =>
     api.get<ClienteResponse>(`/api/clientes/${clienteId}`),
-  update: (clienteId: number, data: UpdateClientRequest) =>
-    api.put<ClienteResponse>(`/api/clientes/${clienteId}`, data),
+  update: (clienteId: number, data: UpdateClientRequest, notifySuccess = true) =>
+    api.put<ClienteResponse>(`/api/clientes/${clienteId}`, data, { notifySuccess }),
 };

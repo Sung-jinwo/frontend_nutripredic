@@ -4,7 +4,7 @@ import { Badge, Card, EmptyState, ErrorState, LoadingState, ProgressBar } from "
 import { useAuth } from "../../../context/AuthContext";
 import { conocimientoIaService, type OpcionAdaptativa, type ResultadoAdaptativoResponse, type SesionConocimientoResponse } from "../../../services/conocimiento-ia.service";
 import { FONT_HEADING } from "../../../types";
-import { toast } from "sonner";
+import { toast } from "../../../services/notifications";
 import { ApiError } from "../../../services/api";
 
 type View = "resumen" | "evaluacion" | "retroalimentacion";

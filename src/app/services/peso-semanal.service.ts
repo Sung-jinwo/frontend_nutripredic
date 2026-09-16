@@ -21,5 +21,5 @@ export const pesoSemanalService = {
     api.post<EstadoPesoSemanal>(`/api/clientes/${clienteId}/peso-semanal`, {
       pesoKg,
       confirmarCambioAnomalo,
-    }),
+    }, { notifySuccess: false, silentStatuses: [409] }),
 };
