@@ -1,6 +1,6 @@
 {
   "source": "GENERATED_E2E_INPUTS",
-  "purpose": "Local administrative dashboard verification; not research or training data",
+  "purpose": "Explicit administrative dashboard demonstration on local or remote server; not research or training data",
   "cases": [
     { "id": 1, "proteinG": 90, "carbsG": 240, "fatG": 65, "waterL": 1, "caffeineMg": 450, "answers": ["A", "A", "A", "A", "A"] },
     { "id": 2, "proteinG": 155, "carbsG": 390, "fatG": 104, "waterL": 3, "caffeineMg": 100, "answers": ["B", "B", "B", "B", "B"] },

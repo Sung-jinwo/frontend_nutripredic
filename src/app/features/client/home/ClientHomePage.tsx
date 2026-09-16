@@ -48,29 +48,37 @@ export default function ClientHomePage() {
   useEffect(() => {
     let ignore = false;
     if (!user?.clienteId) return;
-    const fecha = new Date().toLocaleDateString("sv-SE");
+    const clienteId = user.clienteId;
+    const fecha = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Lima" });
     setLoadingProgress(true);
-    void planDiarioService.inicializar(user.clienteId, fecha)
-      .then(() => conocimientoIaService.inicial(user.clienteId!))
-      .catch(() => null)
-      .then(() => Promise.all([
+    setFetchError("");
+    // Tu día no depende de Gemini, historiales ni preparación del modelo.
+    const planListo = planDiarioService.inicializar(clienteId, fecha).catch(() => null);
+    void planListo.then(() => Promise.all([
+      analisisNutricionalService.diario(clienteId, fecha),
+      resumenDiarioService.get(clienteId, fecha),
+    ])).then(([daily, resumen]) => {
+      if (ignore) return;
+      setNutrition(resumen ? { ...daily, componentes: daily.componentes.map(c => c.componente === "ENERGIA" ? { ...c, consumido: resumen.consumido.kcal, objetivo: resumen.objetivo.kcal, diferencia: resumen.diferenciaKcal, porcentajeCumplimiento: resumen.porcentajeKcal } : c) } : daily);
+    }).catch(e => {
+      if (!ignore) setFetchError(e instanceof Error ? e.message : String(e));
+    }).finally(() => { if (!ignore) setLoadingProgress(false); });
+
+    void Promise.all([
       habitosService.listByCliente(user.clienteId).catch(() => []),
       analisisPredictivoService.listByCliente(user.clienteId).catch(() => []),
-      analisisNutricionalService.diario(user.clienteId, fecha).catch(() => null),
       analisisPredictivoService.preparacion(user.clienteId, fecha).catch(() => null),
-      conocimientoIaService.obtener(user.clienteId).catch(() => null),
+      planListo.then(() => conocimientoIaService.inicial(clienteId)).then(() => conocimientoIaService.obtener(clienteId)).catch(() => null),
       conocimientoService.history(user.clienteId).catch(() => [] as ResultadoTestResponse[]),
       objetivoNutricionalService.obtener(user.clienteId, fecha).catch(() => null),
       pesoSemanalService.estado(user.clienteId).catch(() => null),
-      resumenDiarioService.get(user.clienteId, fecha),
-    ]))
-      .then(([habits, predictions, daily, prep, adaptEstado, hist, obj, peso, resumen]) => {
+    ])
+      .then(([habits, predictions, prep, adaptEstado, hist, obj, peso]) => {
         if (ignore) return;
         const hoyHabits = Array.isArray(habits) ? habits.filter((h: { fecha: string }) => h.fecha === fecha) : [];
         setHasRegistroHoy(hoyHabits.length > 0);
         const sorted = Array.isArray(predictions) ? [...predictions].sort((a, b) => new Date(b.fechaCorte).getTime() - new Date(a.fechaCorte).getTime()) : [];
         setLatest(sorted[0] ?? null);
-        setNutrition(daily && resumen ? { ...daily, componentes: daily.componentes.map(c => c.componente === "ENERGIA" ? { ...c, consumido: resumen.consumido.kcal, objetivo: resumen.objetivo.kcal, diferencia: resumen.diferenciaKcal, porcentajeCumplimiento: resumen.porcentajeKcal } : c) } : daily);
         if (prep) setPreparacion({ puedeAnalizar: prep.puedeAnalizar, xDisponibles: prep.xDisponibles, xTotal: prep.xTotal });
         else setPreparacion(null);
         if (adaptEstado?.estadoAdaptativo === "GENERADA" && adaptEstado.preguntasAdaptativas.length > 0) {
@@ -88,9 +96,6 @@ export default function ClientHomePage() {
           console.error("Home fetch error", e);
           setFetchError(e instanceof Error ? e.message : String(e));
         }
-      })
-      .finally(() => {
-        if (!ignore) setLoadingProgress(false);
       });
     return () => {
       ignore = true;
