@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Award, BookOpen, CheckCircle2, ChevronLeft, ChevronRight, GraduationCap, Lightbulb, Target, XCircle } from "lucide-react";
 import { Badge, Card, EmptyState, ErrorState, LoadingState, ProgressBar } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
@@ -6,17 +6,20 @@ import { conocimientoIaService, type OpcionAdaptativa, type ResultadoAdaptativoR
 import { FONT_HEADING } from "../../../types";
 import { toast } from "../../../services/notifications";
 import { ApiError } from "../../../services/api";
+import { useLimaDate } from "../../../hooks/useLimaDate";
 
 type View = "resumen" | "evaluacion" | "retroalimentacion";
 
 const message = (error: unknown) => error instanceof Error ? error.message : "No se pudo completar la operación.";
-const today = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Lima" });
 const formatDate = (value?: string | null) => value
   ? new Date(`${value}T00:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "long", year: "numeric" })
   : "Pendiente";
 
 export default function ClientConocimientoPage() {
   const { user } = useAuth();
+  const fecha = useLimaDate();
+  const sesionActual = useRef<number | null>(null);
+  const consultaActual = useRef(0);
   const [view, setView] = useState<View>("resumen");
   const [session, setSession] = useState<SesionConocimientoResponse | null>(null);
   const [result, setResult] = useState<ResultadoAdaptativoResponse | null>(null);
@@ -31,22 +34,28 @@ export default function ClientConocimientoPage() {
     if (!user?.clienteId) { setLoading(false); return; }
     setLoading(true);
     setError("");
-    conocimientoIaService.obtener(user.clienteId, today())
-      .catch(cause => { if (cause instanceof ApiError && cause.status === 404) return conocimientoIaService.inicial(user.clienteId!); throw cause; })
+    const consulta = ++consultaActual.current;
+    conocimientoIaService.obtener(user.clienteId, fecha)
+      .catch(cause => { if (cause instanceof ApiError && cause.status === 404) return conocimientoIaService.diariaPerfil(user.clienteId!); throw cause; })
       .then(async (data) => {
-        if (notificar && !data.clasificacionPredictiva && data.estadoAdaptativo === "IA_NO_DISPONIBLE") data = await conocimientoIaService.inicial(user.clienteId!);
+        if (notificar && !data.clasificacionPredictiva && data.estadoAdaptativo === "IA_NO_DISPONIBLE") data = await conocimientoIaService.diariaPerfil(user.clienteId!);
+        if (consulta !== consultaActual.current) return;
+        if (sesionActual.current !== data.sesionId) {
+          sesionActual.current = data.sesionId;
+          setAnswers({}); setSelected(""); setIndex(0); setView("resumen");
+        }
         setSession(data); setResult(data.resultadoAdaptativo);
         if (notificar) toast.success("Evaluación de conocimiento consultada.");
       })
-      .catch((cause) => { setSession(null); setResult(null); if (cause instanceof ApiError && cause.status === 404) { if (notificar) toast.info("La evaluación todavía no está generada. Revisa el estado del ciclo diario en Análisis."); } else setError(message(cause)); })
-      .finally(() => setLoading(false));
-  }, [user?.clienteId]);
+      .catch((cause) => { if (consulta !== consultaActual.current) return; setSession(null); setResult(null); if (cause instanceof ApiError && cause.status === 404) { if (notificar) toast.info("La evaluación todavía no está generada. Revisa el estado del ciclo diario en Análisis."); } else setError(message(cause)); })
+      .finally(() => { if (consulta === consultaActual.current) setLoading(false); });
+  }, [user?.clienteId, fecha]);
 
   useEffect(() => {
     load();
     const onCiclo = () => load();
     window.addEventListener("nutripredict:ciclo-diario-actualizado", onCiclo);
-    return () => window.removeEventListener("nutripredict:ciclo-diario-actualizado", onCiclo);
+    return () => { consultaActual.current++; window.removeEventListener("nutripredict:ciclo-diario-actualizado", onCiclo); };
   }, [load]);
 
   const question = session?.preguntasAdaptativas[index] ?? null;
@@ -95,7 +104,7 @@ export default function ClientConocimientoPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-[-0.02em] text-slate-900" style={FONT_HEADING}>Conocimiento</h1>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Comienza con cinco preguntas según tu objetivo y tus metas. Después, cada ciclo diario genera una evaluación adaptada al consumo anterior y a tus resultados.</p>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Cada día tienes cinco preguntas. Si ayer no hay consumo registrado, se basan en tu objetivo, metas y errores anteriores; no se inventa una evaluación de consumo.</p>
         <button onClick={() => load(true)} className="mt-3 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">Consultar evaluación guardada</button>
       </div>
 
@@ -112,6 +121,7 @@ export default function ClientConocimientoPage() {
       </div>
 
       {error && <ErrorState message={error} />}
+      {session && !session.clasificacionPredictiva && session.fechaEvaluacion !== fecha && <Card className="p-4"><p className="text-sm text-slate-700">La evaluación diaria de hoy aún está pendiente. Lo mostrado es tu evaluación inicial, no un nuevo test diario.</p><p className="mt-1 text-xs text-slate-500">Completa el registro de alimentos y agua de ayer y revisa el ciclo de hoy en Análisis. Un test respondido no se reemplaza al actualizar.</p></Card>}
       {view === "resumen" && <Summary session={session} result={result} onBegin={begin} onFeedback={() => setView("retroalimentacion")} />}
       {view === "evaluacion" && <Evaluation session={session} result={result} question={question} index={index} selected={selected} setSelected={setSelected} onNext={next} onPrevious={previous} onBegin={begin} onSummary={() => setView("resumen")} saving={saving} />}
       {view === "retroalimentacion" && <Feedback session={session} result={result} failures={failures} onSummary={() => setView("resumen")} />}
@@ -124,7 +134,7 @@ function Summary({ session, result, onBegin, onFeedback }: { session: SesionCono
   if (session.estadoAdaptativo === "IA_NO_DISPONIBLE" || session.estadoAdaptativo === "NO_DISPONIBLE") return <EmptyState title="Evaluación no disponible" description="Gemini no pudo generar la evaluación asociada al análisis predictivo. No se crearon preguntas simuladas." />;
   return <div className="grid gap-4 lg:grid-cols-[1.2fr_.8fr]">
     <Card className="p-6">
-      <div className="flex items-center gap-2"><Award size={18} className="text-emerald-600" /><h2 className="font-semibold text-slate-900" style={FONT_HEADING}>{session.clasificacionPredictiva ? "Resultado diario" : "Evaluación inicial"}</h2></div>
+      <div className="flex items-center gap-2"><Award size={18} className="text-emerald-600" /><h2 className="font-semibold text-slate-900" style={FONT_HEADING}>{session.clasificacionPredictiva ? "Resultado diario" : "Evaluación educativa del día"}</h2></div>
       {result ? <>
         <div className="mt-5 rounded-2xl bg-emerald-50 p-5 text-center">
           <p className="text-4xl font-bold text-slate-900">{result.puntajeObtenido}/{result.puntajeMaximo}</p>
@@ -137,7 +147,7 @@ function Summary({ session, result, onBegin, onFeedback }: { session: SesionCono
     </Card>
     <Card className="p-5">
       <div className="flex items-center gap-2"><Target size={17} className="text-indigo-600" /><h2 className="font-semibold text-slate-900">Contexto utilizado</h2></div>
-      {!session.clasificacionPredictiva && <p className="mt-3 rounded-lg bg-indigo-50 p-3 text-xs leading-5 text-indigo-800">Evaluación inicial basada en el perfil y las metas: todavía no existe una clasificación del consumo anterior. Este resultado se conserva como línea base y no forma parte del PCC diario oficial.</p>}
+      {!session.clasificacionPredictiva && <p className="mt-3 rounded-lg bg-indigo-50 p-3 text-xs leading-5 text-indigo-800">Evaluación educativa basada en el perfil, metas y resultados anteriores, sin clasificación del consumo de ayer. Se guarda como aprendizaje y no forma parte del PCC diario oficial.</p>}
       <dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-slate-400">Fecha</dt><dd className="font-medium text-slate-700">{formatDate(session.fechaEvaluacion)}</dd></div><div><dt className="text-xs text-slate-400">Objetivo del cliente</dt><dd className="font-medium text-slate-700">{session.objetivoCliente?.replaceAll("_", " ")}</dd></div><div><dt className="text-xs text-slate-400">Clasificación predictiva</dt><dd className="font-medium text-slate-700">{session.clasificacionPredictiva?.replaceAll("_", " ")}</dd></div>{session.metaNutricional?.kcal != null && <div><dt className="text-xs text-slate-400">Metas usadas por la evaluación</dt><dd className="mt-1 font-medium leading-6 text-slate-700">{session.metaNutricional.kcal} kcal · {session.metaNutricional.proteinaG} g proteína · {session.metaNutricional.carbohidratosG} g carbos · {session.metaNutricional.grasasG} g grasas · {session.metaNutricional.aguaMl} ml de líquidos</dd></div>}<div><dt className="text-xs text-slate-400">Puntuación</dt><dd className="font-medium text-slate-700">5 preguntas · 2 puntos cada una</dd></div></dl>
     </Card>
   </div>;
@@ -148,7 +158,7 @@ function Evaluation({ session, result, question, index, selected, setSelected, o
   if (result) return <Card className="p-6 text-center"><CheckCircle2 className="mx-auto text-emerald-600" /><h2 className="mt-2 font-semibold text-slate-900">Evaluación ya respondida</h2><p className="mt-1 text-sm text-slate-500">Este test diario no puede volver a contestarse.</p><button onClick={onSummary} className="mt-4 rounded-xl bg-[#173c36] px-4 py-2 text-sm font-semibold text-white">Ver resultado</button></Card>;
   if (!question) return <Card className="p-6 text-center"><p className="text-sm text-slate-600">La sesión no contiene preguntas disponibles.</p><button onClick={onBegin} className="mt-3 text-sm underline">Volver a intentar</button></Card>;
   return <Card className="p-5 sm:p-6">
-    <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wide text-[#397065]">{session.clasificacionPredictiva ? "Evaluación diaria" : "Evaluación inicial"}</p><span className="text-xs text-slate-500">Pregunta {index + 1} de {session.preguntasAdaptativas.length} · 2 puntos</span></div>
+    <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wide text-[#397065]">{session.clasificacionPredictiva ? "Evaluación predictiva diaria" : "Evaluación educativa"}</p><span className="text-xs text-slate-500">Pregunta {index + 1} de {session.preguntasAdaptativas.length} · 2 puntos</span></div>
     <div className="mt-3 flex gap-1">{session.preguntasAdaptativas.map((_: unknown, position: number) => <span key={position} className={`h-1.5 flex-1 rounded-full ${position <= index ? "bg-emerald-500" : "bg-slate-100"}`} />)}</div>
     <div className="mt-4 flex gap-2"><Badge label={question.tema} variant="info" /><Badge label={question.dificultad} variant="neutral" /></div>
     <h2 className="mt-4 text-base font-semibold leading-6 text-slate-900">{question.enunciado}</h2>
@@ -162,7 +172,7 @@ function Feedback({ session, result, failures, onSummary }: { session: SesionCon
   if (!session || !result) return <EmptyState title="Retroalimentación pendiente" description="Completa primero la evaluación diaria para consultar tus errores y explicaciones." />;
   const byId = new Map(session.preguntasAdaptativas.map((item) => [item.id, item]));
   return <div className="space-y-4">
-    <Card className="p-5"><div className="flex items-center gap-2"><Lightbulb size={18} className="text-indigo-600" /><h2 className="font-semibold text-slate-900">Retroalimentación de la evaluación</h2></div><p className="mt-2 text-sm text-slate-500">Aquí se muestran únicamente las preguntas que fallaste y la explicación educativa guardada por el backend.</p></Card>
+    <Card className="p-5"><div className="flex items-center gap-2"><Lightbulb size={18} className="text-indigo-600" /><h2 className="font-semibold text-slate-900">Retroalimentación de la evaluación</h2></div><p className="mt-2 text-sm text-slate-500">Aquí se muestran únicamente las preguntas que fallaste y la explicación educativa guardada por el sistema.</p></Card>
     {failures.length === 0 ? <Card className="p-8 text-center"><CheckCircle2 size={28} className="mx-auto text-emerald-600" /><h3 className="mt-2 font-semibold text-slate-900">No tuviste errores</h3><p className="mt-1 text-sm text-slate-500">Respondiste correctamente las cinco preguntas.</p></Card> : failures.map((failure, position) => { const failedQuestion = byId.get(failure.preguntaId); return <Card key={failure.preguntaId} className="border-amber-200 p-5"><div className="flex items-start gap-3"><XCircle size={19} className="mt-0.5 shrink-0 text-amber-600" /><div><p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Error {position + 1} · {failedQuestion?.tema}</p><h3 className="mt-1 text-sm font-semibold text-slate-900">{failedQuestion?.enunciado}</h3><p className="mt-3 text-sm text-slate-600">Tu respuesta: <strong>{failure.opcionSeleccionada}</strong> · Respuesta correcta: <strong>{failure.respuestaCorrecta}</strong></p><div className="mt-3 rounded-xl bg-indigo-50 p-3"><p className="text-xs font-semibold text-indigo-800">¿Por qué?</p><p className="mt-1 text-sm leading-6 text-indigo-900">{failure.explicacion}</p></div></div></div></Card>; })}
     <button onClick={onSummary} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm">Volver al resumen</button>
   </div>;

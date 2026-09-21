@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { COMPONENT_FIELDS, numericError, optionalComponent } from "./supplement-validation";
 import { Activity, AlertCircle, Clock, Edit2, Pill, Plus, Utensils } from "lucide-react";
 import { OperationNotice } from "../../../components/shared/OperationNotice";
-import { AppModal, Badge, Card, ConfirmModal, KPICard, SectionHeader, StateBadge } from "../../../components/shared";
+import { AppModal, Badge, Card, KPICard, SectionHeader, StateBadge } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
 import { FONT_HEADING } from "../../../types";
 import { suplementosService, type SuplementoActualizacionRequest, type SuplementoClienteResponse } from "../../../services/suplementos.service";
@@ -9,12 +10,12 @@ import { unidadesService, type UnidadMedidaResponse } from "../../../services/un
 import { useNavigate } from "react-router-dom";
 
 type SupplementForm = { suplementoId: string; nombre: string; cantidadPorToma: string; unidadCodigo: string; proteinaGPorToma: string; carbohidratosGPorToma: string; grasasGPorToma: string; creatinaGPorToma: string; cafeinaMgPorToma: string; sodioMgPorToma: string; tiempoUso: string; activo: "true" | "false"; fechaInicio: string; fechaFin: string };
-const localDate = () => new Date().toLocaleDateString("en-CA");
+const localDate = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
 const timeUseText = (fechaInicio: string, fechaFin = "") => (fechaFin ? `Del ${fechaInicio} al ${fechaFin}` : `En curso desde ${fechaInicio}`);
 const emptyForm = (): SupplementForm => { const fechaInicio = localDate(); return { suplementoId: "", nombre: "", cantidadPorToma: "", unidadCodigo: "", proteinaGPorToma: "", carbohidratosGPorToma: "", grasasGPorToma: "", creatinaGPorToma: "", cafeinaMgPorToma: "", sodioMgPorToma: "", tiempoUso: timeUseText(fechaInicio), activo: "true", fechaInicio, fechaFin: "" }; };
 const inputClass = "w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-800 shadow-sm transition focus:border-[#397065] focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100";
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : "No se pudo completar la operación.");
-const compositionText = (form: SupplementForm) => `Proteína: ${form.proteinaGPorToma || 0} g; Carbohidratos: ${form.carbohidratosGPorToma || 0} g; Grasas: ${form.grasasGPorToma || 0} g; Creatina: ${form.creatinaGPorToma || 0} g; Cafeína: ${form.cafeinaMgPorToma || 0} mg; Sodio: ${form.sodioMgPorToma || 0} mg`;
+const compositionText = (form: SupplementForm) => `Proteína: ${form.proteinaGPorToma || "sin dato"} g; Carbohidratos: ${form.carbohidratosGPorToma || "sin dato"} g; Grasas: ${form.grasasGPorToma || "sin dato"} g; Creatina: ${form.creatinaGPorToma || "sin dato"} g; Cafeína: ${form.cafeinaMgPorToma || "sin dato"} mg; Sodio: ${form.sodioMgPorToma || "sin dato"} mg`;
 
 export default function ClientSuplementosPage() {
   const { user } = useAuth();
@@ -26,8 +27,7 @@ export default function ClientSuplementosPage() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [removing, setRemoving] = useState(false);
-  const [pendingRemoval, setPendingRemoval] = useState<SuplementoClienteResponse | null>(null);
+  const saveInFlight = useRef(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -42,24 +42,26 @@ export default function ClientSuplementosPage() {
   }, [user?.clienteId]);
   useEffect(() => { void load(); }, [load]);
 
-  const invalidDates = Boolean(form.fechaFin && form.fechaFin < form.fechaInicio);
-  const complete = Boolean(form.nombre.trim() && Number(form.cantidadPorToma) > 0 && form.unidadCodigo && form.proteinaGPorToma !== "" && form.carbohidratosGPorToma !== "" && form.grasasGPorToma !== "" && form.creatinaGPorToma !== "" && form.cafeinaMgPorToma !== "" && form.sodioMgPorToma !== "" && form.fechaInicio && !invalidDates);
+  const invalidDates = Boolean(form.fechaFin && (form.fechaFin < form.fechaInicio || (form.fechaFin !== editing?.fechaFin && form.fechaFin < localDate())));
+  const amountError = numericError(form.cantidadPorToma, true);
+  const complete = Boolean(form.nombre.trim() && form.nombre.trim().length <= 255 && !amountError && units.some(u => u.codigo === form.unidadCodigo) && COMPONENT_FIELDS.every(key => !numericError(form[key])) && form.fechaInicio && !invalidDates);
   const update = (field: keyof SupplementForm, value: string) => setForm(current => ({ ...current, [field]: value }));
 
-  const close = () => { setOpen(false); setEditing(null); setForm(emptyForm()); };
+  const close = () => { if (saveInFlight.current) return; setOpen(false); setEditing(null); setForm(emptyForm()); };
   const startEdit = async (record: SuplementoClienteResponse) => {
     setEditing(record); setOpen(true); setError("");
     setForm({ suplementoId: String(record.suplementoId), nombre: record.nombre, cantidadPorToma: String(record.cantidadPorToma ?? record.cantidad), unidadCodigo: record.unidadCodigo ?? record.unidad, proteinaGPorToma: String(record.proteinaGPorToma ?? ""), carbohidratosGPorToma: String(record.carbohidratosGPorToma ?? ""), grasasGPorToma: String(record.grasasGPorToma ?? ""), creatinaGPorToma: String(record.creatinaGPorToma ?? ""), cafeinaMgPorToma: String(record.cafeinaMgPorToma ?? ""), sodioMgPorToma: String(record.sodioMgPorToma ?? ""), tiempoUso: record.tiempoUso ?? "", activo: record.activo ? "true" : "false", fechaInicio: record.fechaInicio, fechaFin: record.fechaFin ?? "" });
   };
   const save = async () => {
-    if (!user?.clienteId || !complete) return;
+    if (saveInFlight.current || !user?.clienteId || !complete) return;
     const cantidad = Number(form.cantidadPorToma);
-    const data: SuplementoActualizacionRequest = { nombreSuplemento: form.nombre.trim(), cantidad, unidad: form.unidadCodigo, frecuencia: null, tiempoUso: timeUseText(form.fechaInicio, form.fechaFin), activo: form.activo === "true", fechaInicio: form.fechaInicio, fechaFin: form.fechaFin || null, cantidadPorToma: cantidad, unidadCodigo: form.unidadCodigo, tomasPorPeriodo: null, periodoFrecuencia: null, componentesDeclarados: compositionText(form), energiaKcalPorToma: null, proteinaGPorToma: Number(form.proteinaGPorToma), carbohidratosGPorToma: Number(form.carbohidratosGPorToma), grasasGPorToma: Number(form.grasasGPorToma), creatinaGPorToma: Number(form.creatinaGPorToma), cafeinaMgPorToma: Number(form.cafeinaMgPorToma), sodioMgPorToma: Number(form.sodioMgPorToma) };
+    const fechaInicio = editing ? editing.fechaInicio : localDate();
+    const data: SuplementoActualizacionRequest = { nombreSuplemento: form.nombre.trim(), cantidad, unidad: form.unidadCodigo, frecuencia: null, tiempoUso: timeUseText(fechaInicio, form.fechaFin), activo: editing ? form.activo === "true" : true, fechaInicio, fechaFin: editing ? form.fechaFin || null : null, cantidadPorToma: cantidad, unidadCodigo: form.unidadCodigo, tomasPorPeriodo: null, periodoFrecuencia: null, componentesDeclarados: compositionText(form), energiaKcalPorToma: null, proteinaGPorToma: optionalComponent(form.proteinaGPorToma), carbohidratosGPorToma: optionalComponent(form.carbohidratosGPorToma), grasasGPorToma: optionalComponent(form.grasasGPorToma), creatinaGPorToma: optionalComponent(form.creatinaGPorToma), cafeinaMgPorToma: optionalComponent(form.cafeinaMgPorToma), sodioMgPorToma: optionalComponent(form.sodioMgPorToma) };
+    saveInFlight.current = true;
     setSaving(true); setError("");
-    try { if (editing) await suplementosService.update(user.clienteId, editing.suplementoId, data); else await suplementosService.create(user.clienteId, { suplementoId: null, ...data }); close(); await load(); }
-    catch (cause) { setError(errorMessage(cause)); } finally { setSaving(false); }
+    try { if (editing) await suplementosService.update(user.clienteId, editing.suplementoId, data); else await suplementosService.create(user.clienteId, { suplementoId: null, ...data }); setOpen(false); setEditing(null); setForm(emptyForm()); await load(); }
+    catch (cause) { setError(errorMessage(cause)); } finally { saveInFlight.current = false; setSaving(false); }
   };
-  const remove = async () => { if (!user?.clienteId || !pendingRemoval) return; setRemoving(true); try { await suplementosService.delete(user.clienteId, pendingRemoval.suplementoId); setPendingRemoval(null); await load(); } catch (cause) { setError(errorMessage(cause)); } finally { setRemoving(false); } };
   const activeCount = records.filter(item => item.activo).length;
 
   return <div>
@@ -76,14 +78,14 @@ export default function ClientSuplementosPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Nombre del suplemento"><input aria-label="Nombre del suplemento" value={form.nombre} onChange={event => update("nombre", event.target.value)} maxLength={255} className={inputClass} placeholder="Ej.: Whey Protein, Creatina monohidratada" /></Field>
         <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-xs leading-5 text-indigo-800">Ingresa la información tal como figura en la etiqueta. Esta composición quedará asociada a tu suplemento y se reutilizará en el registro diario.</div>
-        <Field label="Tamaño de una porción según la etiqueta"><input aria-label="Tamaño de una porción según la etiqueta" type="number" min="0.0001" step="any" value={form.cantidadPorToma} onChange={event => update("cantidadPorToma", event.target.value)} className={inputClass} placeholder="Ej. 30 (whey), 5 (creatina), 1 (cápsula)" /></Field>
+        <Field label="Tamaño de una porción según la etiqueta"><input aria-label="Tamaño de una porción según la etiqueta" aria-invalid={!!amountError} type="number" min="0.0001" step="0.0001" value={form.cantidadPorToma} onChange={event => update("cantidadPorToma", event.target.value)} className={inputClass} placeholder="Ej. 30 (whey), 5 (creatina), 1 (cápsula)" />{form.cantidadPorToma && amountError && <p role="alert" className="mt-1 text-xs text-rose-700">{amountError}</p>}</Field>
         <Field label="Unidad"><select aria-label="Unidad canónica" value={form.unidadCodigo} onChange={event => update("unidadCodigo", event.target.value)} className={inputClass}><option value="">Seleccionar unidad</option>{units.map(unit => <option key={unit.codigo} value={unit.codigo}>{unit.nombre} ({unit.codigo}) — ej. g, mg, µg, ml</option>)}</select></Field>
-        <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3 md:col-span-2"><p className="text-xs font-semibold text-amber-800">Componentes presentes en esa porción</p><p className="mt-1 text-[11px] text-amber-700">Copia los valores “por porción” de la etiqueta. Escribe 0 únicamente si confirmas que el producto no contiene ese componente.</p><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">{[["proteinaGPorToma","Proteína (g)"],["carbohidratosGPorToma","Carbos (g)"],["grasasGPorToma","Grasas (g)"],["creatinaGPorToma","Creatina (g)"],["cafeinaMgPorToma","Cafeína (mg)"],["sodioMgPorToma","Sodio (mg)"]].map(([key,label]) => <label key={key}><span className="text-[11px] text-slate-600">{label}</span><input type="number" min="0" step="any" value={form[key as keyof SupplementForm]} onChange={event => update(key as keyof SupplementForm, event.target.value)} className={inputClass} /></label>)}</div></div>
-        <Field label="¿Desde cuándo lo consumes habitualmente?"><input aria-label="Fecha de inicio de uso habitual" type="date" value={form.fechaInicio} onChange={event => update("fechaInicio", event.target.value)} className={inputClass} /></Field>
-        <Field label="Fecha de fin (opcional)"><input aria-label="Fecha de fin" type="date" value={form.fechaFin} onChange={event => update("fechaFin", event.target.value)} className={inputClass} /></Field>
-        <Field label="Uso actual"><select aria-label="Actualmente lo consumo" value={form.activo} onChange={event => update("activo", event.target.value)} className={inputClass}><option value="true">Activo — lo consumo</option><option value="false">Inactivo</option></select></Field></div>
-      {invalidDates && <p role="alert" className="mt-3 text-xs text-rose-600">La fecha de fin no puede ser anterior a la fecha de inicio.</p>}
-      {!complete && !invalidDates && <p className="mt-3 text-xs text-amber-700">Completa producto, porción, composición cuantificada y fecha de inicio. Usa 0 cuando un componente no esté presente.</p>}
+        <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3 md:col-span-2"><p className="text-xs font-semibold text-amber-800">Componentes presentes en esa porción (opcionales)</p><p className="mt-1 text-[11px] text-amber-700">Completa solo lo que conoces de la etiqueta. Deja vacío si no hay información; escribe 0 únicamente si confirmas que no lo contiene. Los datos desconocidos no permiten descartar exceso.</p><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">{[["proteinaGPorToma","Proteína (g)"],["carbohidratosGPorToma","Carbos (g)"],["grasasGPorToma","Grasas (g)"],["creatinaGPorToma","Creatina (g)"],["cafeinaMgPorToma","Cafeína (mg)"],["sodioMgPorToma","Sodio (mg)"]].map(([key,label]) => <label key={key}><span className="text-[11px] text-slate-600">{label}</span><input aria-label={label} aria-invalid={!!numericError(form[key as keyof SupplementForm])} type="number" min="0" step="0.0001" value={form[key as keyof SupplementForm]} onChange={event => update(key as keyof SupplementForm, event.target.value)} placeholder="Sin dato" className={inputClass} />{numericError(form[key as keyof SupplementForm]) && <p role="alert" className="mt-1 text-xs text-rose-700">{numericError(form[key as keyof SupplementForm])}</p>}</label>)}</div></div>
+        <Field label="Fecha de registro"><input aria-label="Fecha de registro del suplemento" type="date" value={editing ? form.fechaInicio : localDate()} disabled className={inputClass} /></Field>
+        {editing && <Field label="Fecha de fin (opcional)"><input aria-label="Fecha de fin" type="date" min={localDate()} value={form.fechaFin} onChange={event => update("fechaFin", event.target.value)} className={inputClass} /></Field>}
+        {editing ? <Field label="Uso actual"><button type="button" onClick={() => setForm(current => ({ ...current, activo: current.activo === "true" ? "false" : "true", fechaFin: current.activo === "true" ? localDate() : "" }))} className="rounded-lg border px-3 py-2 text-xs">{form.activo === "true" ? "Pasar a inactivo" : "Reactivar suplemento"}</button><span className="ml-2 text-xs text-slate-500">{form.activo === "true" ? "Activo" : "Inactivo"} · se aplica al guardar</span></Field> : <p className="text-xs text-teal-700">Se registrará automáticamente como activo desde hoy.</p>}</div>
+      {invalidDates && <p role="alert" className="mt-3 text-xs text-rose-600">La nueva fecha de fin no puede ser anterior a hoy ni a la fecha de inicio.</p>}
+      {!complete && !invalidDates && <p className="mt-3 text-xs text-amber-700">Completa el nombre, una porción válida y la unidad. Los componentes pueden quedar vacíos.</p>}
     </AppModal>
 
     <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-4">{[{ icon: Pill, label: "Activos", value: activeCount, color: "bg-teal-500" }, { icon: Activity, label: "Total productos", value: records.length, color: "bg-indigo-500" }, { icon: Clock, label: "Con composición", value: records.filter(record => record.proteinaGPorToma != null && record.carbohidratosGPorToma != null && record.grasasGPorToma != null && record.creatinaGPorToma != null && record.cafeinaMgPorToma != null && record.sodioMgPorToma != null).length, color: "bg-slate-600" }, { icon: AlertCircle, label: "Inactivos", value: records.length - activeCount, color: "bg-amber-500" }].map(item => <KPICard key={item.label} icon={item.icon} title={item.label} value={String(item.value)} iconBg={item.color} />)}</div>
@@ -108,13 +110,12 @@ export default function ClientSuplementosPage() {
             <p className="text-xs text-slate-500">Composición declarada por el cliente</p>
             <div className="mt-3 space-y-1.5 rounded-xl bg-slate-50 p-3 text-xs">
               <p className="flex justify-between"><span className="text-slate-500">Porción</span><span className="font-medium text-slate-800">{record.cantidadPorToma ?? record.cantidad} {record.unidadCodigo ?? record.unidad}</span></p>
-              <p className="text-slate-500">Macros: <span className="font-medium text-slate-800">P {record.proteinaGPorToma ?? 0} g · C {record.carbohidratosGPorToma ?? 0} g · G {record.grasasGPorToma ?? 0} g</span></p>
-              <p className="text-slate-500">Otros: <span className="font-medium text-slate-800">Creatina {record.creatinaGPorToma ?? 0} g · Cafeína {record.cafeinaMgPorToma ?? 0} mg · Sodio {record.sodioMgPorToma ?? 0} mg</span></p>
+              <p className="text-slate-500">Macros: <span className="font-medium text-slate-800">P {record.proteinaGPorToma ?? "sin dato"} g · C {record.carbohidratosGPorToma ?? "sin dato"} g · G {record.grasasGPorToma ?? "sin dato"} g</span></p>
+              <p className="text-slate-500">Otros: <span className="font-medium text-slate-800">Creatina {record.creatinaGPorToma ?? "sin dato"} g · Cafeína {record.cafeinaMgPorToma ?? "sin dato"} mg · Sodio {record.sodioMgPorToma ?? "sin dato"} mg</span></p>
               <p className="flex justify-between"><span className="text-slate-500">Periodo</span><span className="font-medium text-slate-800">{record.fechaInicio} → {record.fechaFin || "actualidad"}</span></p>
             </div>
             <div className="mt-3 flex gap-1">
               <button aria-label={`Editar ${record.nombre}`} onClick={() => void startEdit(record)} className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"><Edit2 size={12} /> Editar</button>
-              {record.activo && <button aria-label={`Desactivar ${record.nombre}`} onClick={() => setPendingRemoval(record)} className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50">Desactivar</button>}
             </div>
             <button onClick={() => navigate("/client/habitos")} className="mt-2 flex items-center justify-center gap-1 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"><Utensils size={12}/> Usar en Mi alimentación</button>
           </Card>
@@ -122,7 +123,6 @@ export default function ClientSuplementosPage() {
       </div>
     )}
 
-    <ConfirmModal open={Boolean(pendingRemoval)} onOpenChange={value => { if (!value && !removing) setPendingRemoval(null); }} title="Desactivar suplemento" description={`¿Desactivar ${pendingRemoval?.nombre ?? "este suplemento"}? Seguirá en historial y podrás reactivarlo editando.`} confirmLabel="Desactivar" destructive busy={removing} onConfirm={() => void remove()} />
   </div>;
 }
 

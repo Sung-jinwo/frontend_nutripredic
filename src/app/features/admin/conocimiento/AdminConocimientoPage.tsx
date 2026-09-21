@@ -9,7 +9,7 @@ const tooltipStyle = { borderRadius: 12, border: "1px solid #dbe7e1", boxShadow:
 
 function reason(value: string | null) {
   if (value === "SIN_RESULTADOS_VALIDOS") return "No existen sesiones diarias de Gemini respondidas que cumplan todos los requisitos del PCC oficial.";
-  return value?.replaceAll("_", " ").toLocaleLowerCase() || "El backend no informó el motivo.";
+  return value?.replaceAll("_", " ").toLocaleLowerCase() || "No se informó el motivo.";
 }
 
 export default function AdminConocimientoPage() {
@@ -32,7 +32,7 @@ export default function AdminConocimientoPage() {
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return <LoadingState label="Cargando análisis de conocimiento..." />;
-  if (error || !data) return <ErrorState message={error || "Respuesta vacía del backend."} />;
+  if (error || !data) return <ErrorState message={error || "No se recibió información del sistema."} />;
 
   const available = data.estadoDisponibilidad === "DISPONIBLE" && data.porcentajePcc != null && data.totalEvaluadosValidos > 0;
   const otherLevels = Math.max(data.totalEvaluadosValidos - data.totalBajoConocimiento, 0);
@@ -81,7 +81,7 @@ export default function AdminConocimientoPage() {
               <div className="pointer-events-none absolute inset-x-0 top-[126px] text-center"><p className="text-4xl font-semibold text-slate-900">{data.porcentajePcc?.toFixed(1)}%</p><p className="text-xs text-slate-500">PCC oficial</p></div>
             </div>
           ) : (
-            <div className="mt-5 flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed bg-slate-50 px-6 text-center"><Brain className="h-10 w-10 text-slate-300" /><p className="mt-3 font-semibold text-slate-700">Sin resultados válidos</p><p className="mt-1 max-w-md text-sm text-slate-500">El gráfico aparecerá cuando el backend reconozca al menos una evaluación oficial válida.</p></div>
+            <div className="mt-5 flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed bg-slate-50 px-6 text-center"><Brain className="h-10 w-10 text-slate-300" /><p className="mt-3 font-semibold text-slate-700">Sin resultados válidos</p><p className="mt-1 max-w-md text-sm text-slate-500">El gráfico aparecerá cuando el sistema reconozca al menos una evaluación oficial válida.</p></div>
           )}
         </Card>
 

@@ -10,7 +10,7 @@ export function NotificationCenter() {
   return <Sheet open={open} onOpenChange={value => { setOpen(value); if (value) notificationStore.markAllRead(); }}>
     <SheetTrigger asChild><button className="relative rounded-xl p-2 text-primary hover:bg-muted" aria-label={`Notificaciones, ${unread} sin leer`}><Bell size={20}/>{unread > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">{unread > 99 ? "99+" : unread}</span>}</button></SheetTrigger>
     <SheetContent className="w-full sm:max-w-md">
-      <SheetHeader><SheetTitle>Notificaciones</SheetTitle><SheetDescription>Últimos 100 avisos de tu cuenta guardados en este navegador. No se sincronizan entre dispositivos.</SheetDescription></SheetHeader>
+      <SheetHeader><SheetTitle>Notificaciones</SheetTitle><SheetDescription>Avisos informativos guardados en este navegador. Los errores y confirmaciones se muestran solo como mensajes flotantes. No se sincronizan entre dispositivos.</SheetDescription></SheetHeader>
       <div className="flex items-center justify-between px-4 text-xs text-muted-foreground"><span>{items.length} avisos</span><button disabled={!items.length} onClick={notificationStore.clear} className="rounded-md px-2 py-1 hover:bg-muted disabled:opacity-40">Vaciar historial</button></div>
       <div className="flex-1 overflow-y-auto px-4 pb-6">{items.length === 0 ? <p className="py-12 text-center text-sm text-muted-foreground">No tienes notificaciones guardadas.</p> : <ul className="space-y-3">{items.map(item => {
         const Icon = item.kind === "error" ? TriangleAlert : item.kind === "success" ? CheckCircle2 : Info;

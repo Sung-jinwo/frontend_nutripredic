@@ -13,6 +13,7 @@ import { objetivoNutricionalService, type ObjetivoNutricionalResponse } from "..
 import { planDiarioService } from "../../../services/plan-diario.service";
 import { pesoSemanalService, type EstadoPesoSemanal } from "../../../services/peso-semanal.service";
 import { resumenDiarioService } from "../../../services/resumen-diario.service";
+import { useLimaDate } from "../../../hooks/useLimaDate";
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -44,12 +45,12 @@ export default function ClientHomePage() {
   const [loadingProgress, setLoadingProgress] = useState(true);
   const [fetchError, setFetchError] = useState("");
   const [pesoEstado, setPesoEstado] = useState<EstadoPesoSemanal | null>(null);
+  const fecha = useLimaDate();
 
   useEffect(() => {
     let ignore = false;
     if (!user?.clienteId) return;
     const clienteId = user.clienteId;
-    const fecha = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Lima" });
     setLoadingProgress(true);
     setFetchError("");
     // Tu día no depende de Gemini, historiales ni preparación del modelo.
@@ -100,7 +101,7 @@ export default function ClientHomePage() {
     return () => {
       ignore = true;
     };
-  }, [user?.clienteId]);
+  }, [user?.clienteId, fecha]);
 
   const greeting = getGreeting();
   const todayLong = formatLongDate(new Date());

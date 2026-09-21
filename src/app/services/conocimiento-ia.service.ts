@@ -91,6 +91,7 @@ export interface ResponderConocimientoIaRequest {
 }
 
 export const conocimientoIaService = {
+  diariaPerfil: (clienteId: number) => api.post<SesionConocimientoResponse>(`/api/clientes/${clienteId}/conocimiento/diario-perfil/asegurar`, {}, { notifySuccess: false }),
   inicial: (clienteId: number) => api.post<SesionConocimientoResponse>(`/api/clientes/${clienteId}/conocimiento/inicial/asegurar`, {}, { notifySuccess: false }),
   generar: (clienteId: number, request: GenerarConocimientoIaRequest) =>
     api.post<SesionConocimientoResponse>(

@@ -89,7 +89,7 @@ export default function ClientConsumoPage() {
       if (summaryResult.status === "fulfilled") {
         setDailyContributions(summaryResult.value.resumenDiario.find((day) => day.fecha === fecha) ?? null);
       } else {
-        setSummaryError("No se pudieron cargar los aportes de suplementos. Reinicia el backend para habilitar el nuevo endpoint de resumen.");
+        setSummaryError("No se pudieron cargar los aportes de suplementos. Inténtalo nuevamente más tarde.");
         setDailyContributions(null);
       }
     } catch {
@@ -169,19 +169,19 @@ export default function ClientConsumoPage() {
         <>
           <Card className="p-6">
             <div className="flex items-start justify-between gap-3">
-              <div className="flex gap-3">
-                <div className={`mt-0.5 rounded-xl p-2.5 ${high ? "bg-rose-50 text-rose-600" : unavailable ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
-                  {high ? <AlertTriangle size={21} /> : unavailable ? <Gauge size={21} /> : <CheckCircle2 size={21} />}
+              <div className="flex min-w-0 gap-3">
+                <div className={`mt-0.5 flex h-11 w-11 shrink-0 self-start items-center justify-center rounded-xl ${high ? "bg-rose-50 text-rose-600" : unavailable ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
+                  {high ? <AlertTriangle size={22} className="shrink-0" aria-hidden="true" /> : unavailable ? <Gauge size={22} className="shrink-0" aria-hidden="true" /> : <CheckCircle2 size={22} className="shrink-0" aria-hidden="true" />}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#397065]">Resultado de seguridad del día</p>
-                  <h2 className="mt-1 text-2xl font-semibold text-slate-900">
+                  <h2 className="mt-1 break-words text-2xl font-semibold text-slate-900">
                     {unavailable ? "No se puede determinar" : high ? "Consumo alto" : "Dentro de los límites"}
                   </h2>
                   <p className="mt-2 text-sm text-slate-500">{data.fechaCorte} · ventana de {data.ventanaDias} día</p>
                 </div>
               </div>
-              <StatusBadge label={unavailable ? "NO DETERMINADO" : high ? "ALTO" : "NO ALTO"} variant={unavailable ? "warning" : high ? "danger" : "success"} />
+              <div className="shrink-0"><StatusBadge label={unavailable ? "NO DETERMINADO" : high ? "ALTO" : "NO ALTO"} variant={unavailable ? "warning" : high ? "danger" : "success"} /></div>
             </div>
             {data.motivo && <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">{evaluationReason(data.motivo)}</p>}
             {details.some((detail) => detail.resultado === "NO_CALCULABLE") && (

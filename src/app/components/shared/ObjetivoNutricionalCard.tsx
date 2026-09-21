@@ -86,7 +86,7 @@ export function ObjetivoNutricionalCard({ clienteId, objetivoFisicoFallback, com
       <Card className="p-6">
         <p className="text-sm font-semibold text-rose-700">No se pudo cargar el objetivo nutricional</p>
         <p className="mt-1 text-xs text-slate-500">{error}</p>
-        <p className="mt-2 text-xs text-slate-400">El cálculo lo realiza el backend. Inténtalo más tarde.</p>
+        <p className="mt-2 text-xs text-slate-400">El cálculo lo realiza el sistema. Inténtalo más tarde.</p>
       </Card>
     );
   }
@@ -158,7 +158,7 @@ export function ObjetivoNutricionalCard({ clienteId, objetivoFisicoFallback, com
       </div>
 
       <p className="mt-4 text-xs leading-5 text-slate-400">
-        Valores oficiales del backend. No se calculan en frontend.
+        Valores oficiales del sistema. No se calculan aquí.
         {data.calculadoEn && <> · Calculado el {new Date(data.calculadoEn).toLocaleDateString("es-PE")}</>}
       </p>
     </Card>
@@ -259,7 +259,7 @@ export function ObjetivoOnboardingResult({ clienteId, objetivoFisico }: { client
           </p>
         </div>
       </div>
-      <p className="mt-3 text-xs text-slate-400">Valores oficiales del backend. Calculado el {data.calculadoEn ? new Date(data.calculadoEn).toLocaleDateString("es-PE") : "—"}.</p>
+      <p className="mt-3 text-xs text-slate-400">Valores oficiales del sistema. Calculado el {data.calculadoEn ? new Date(data.calculadoEn).toLocaleDateString("es-PE") : "—"}.</p>
     </>
   );
 }

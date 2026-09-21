@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "../../../services/notifications";
 import { Check, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import { AppModal, Badge, SectionHeader, Card, OperationNotice } from "../../../components/shared";
@@ -7,7 +7,9 @@ import { FONT_HEADING, FONT_MONO } from "../../../types";
 import { useAuth } from "../../../context/AuthContext";
 import { tipoObjetivoDesdeUx, type TipoEntrenamiento } from "../../../services/client.service";
 import { ApiError } from "../../../services/api";
-import { pesoSemanalService, type EstadoPesoSemanal } from "../../../services/peso-semanal.service";
+import { pesoSemanalService, type EstadoPesoSemanal, type RegistroPeso } from "../../../services/peso-semanal.service";
+import { PesoCalendar } from "./PesoCalendar";
+import { validarPesoSemanal } from "./peso-validation";
 
 const H = FONT_HEADING;
 const MONO = FONT_MONO;
@@ -63,6 +65,38 @@ export default function ClientProfilePage() {
   const [confirmarPeso, setConfirmarPeso] = useState(false);
   const [mensajePeso, setMensajePeso] = useState("");
   const [errorPeso, setErrorPeso] = useState("");
+  const pesoEnCurso = useRef(false);
+  const [pesoHistorial, setPesoHistorial] = useState<RegistroPeso[]>([]);
+  const [cargandoPesos, setCargandoPesos] = useState(true);
+  const [cargaPesoFallida, setCargaPesoFallida] = useState(false);
+  const [historialPesoDisponible, setHistorialPesoDisponible] = useState(false);
+  const [detalleCargaPeso, setDetalleCargaPeso] = useState("");
+  const cargaPesoEnCurso = useRef(false);
+  const pesoInvalido = nuevoPeso ? validarPesoSemanal(nuevoPeso) : "";
+  const cargarPesos = async (clienteId: number) => {
+    if (cargaPesoEnCurso.current) return;
+    cargaPesoEnCurso.current = true;
+    setCargandoPesos(true); setCargaPesoFallida(false);
+    setDetalleCargaPeso("");
+    try {
+      const [estado, historial] = await Promise.allSettled([pesoSemanalService.estado(clienteId, false), pesoSemanalService.historial(clienteId, false)]);
+      if (estado.status === "fulfilled") setPesoEstado(estado.value);
+      else setPesoEstado(null);
+      if (historial.status === "fulfilled") {
+        setPesoHistorial(historial.value); setHistorialPesoDisponible(true);
+      } else setHistorialPesoDisponible(false);
+      const fallos = [estado, historial].filter((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (fallos.length) {
+        setCargaPesoFallida(true);
+        const causa = fallos[0].reason;
+        const detalle = causa instanceof ApiError && causa.status === 404
+          ? "El backend no tiene disponible el seguimiento de peso. Verifica que esté desplegada su versión actualizada."
+          : causa instanceof Error ? causa.message : "No se pudo consultar el seguimiento de peso.";
+        setDetalleCargaPeso(detalle);
+        toast.error(detalle, { id: "peso-semanal-carga" });
+      }
+    } finally { cargaPesoEnCurso.current = false; setCargandoPesos(false); }
+  };
   const [form, setForm] = useState<ProfileForm>({
     edad: "",
     pesoKg: "",
@@ -94,26 +128,33 @@ export default function ClientProfilePage() {
 
   useEffect(() => {
     if (!user?.clienteId) return;
-    void pesoSemanalService.estado(user.clienteId).then(setPesoEstado).catch(() => setPesoEstado(null));
+    void cargarPesos(user.clienteId);
   }, [user?.clienteId]);
 
   const registrarPeso = async (confirmado = false) => {
-    if (!user?.clienteId || !(Number(nuevoPeso) >= 1 && Number(nuevoPeso) <= 500)) {
-      setErrorPeso("Ingresa un peso válido entre 1 y 500 kg.");
+    if (pesoEnCurso.current) return;
+    const validacion = validarPesoSemanal(nuevoPeso);
+    if (!user?.clienteId || validacion) {
+      setErrorPeso(validacion || "No se encontró el cliente.");
       return;
     }
+    if (cargandoPesos || cargaPesoFallida || !pesoEstado?.habilitado) return;
+    pesoEnCurso.current = true;
     setGuardandoPeso(true); setErrorPeso(""); setMensajePeso("");
     try {
       const estado = await pesoSemanalService.registrar(user.clienteId, Number(nuevoPeso), confirmado);
       setPesoEstado(estado); setNuevoPeso(""); setConfirmarPeso(false);
       setMensajePeso("Peso semanal guardado. Las nuevas metas se aplicarán desde el siguiente plan diario.");
-      await refreshProfile();
+      await Promise.all([refreshProfile(), cargarPesos(user.clienteId)]);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 409 && cause.message.includes("CONFIRMAR_CAMBIO_PESO")) {
         setConfirmarPeso(true);
         setErrorPeso("El cambio es de 5 % o más. Confirma que el peso ingresado es correcto.");
-      } else toast.error(cause instanceof Error ? cause.message : "No se pudo guardar el peso.");
-    } finally { setGuardandoPeso(false); }
+      } else {
+        toast.error(cause instanceof Error ? cause.message : "No se pudo guardar el peso.");
+        if (cause instanceof ApiError && cause.status === 409) await cargarPesos(user.clienteId);
+      }
+    } finally { pesoEnCurso.current = false; setGuardandoPeso(false); }
   };
 
   const initials = (user?.nombre ?? "Usuario").split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
@@ -196,8 +237,8 @@ export default function ClientProfilePage() {
     <SectionHeader title="Mi Perfil" subtitle={profileComplete ? "Información personal y actividad básica" : "Completa tus datos para continuar"} action={!editing ? <button onClick={() => { setEditing(true); setMessage(""); }} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Editar perfil</button> : undefined} />
     <OperationNotice message={message} kind="success"/>
     <div className="grid grid-cols-1 gap-4 mb-5 lg:grid-cols-3">
-      <Card className="p-6 text-center"><div className="w-20 h-20 rounded-full bg-gradient-to-br from-teal-400 to-indigo-500 mx-auto flex items-center justify-center text-white text-2xl font-bold mb-4">{initials}</div><h3 className="font-semibold text-slate-800 text-lg mb-0.5" style={H}>{user?.nombre}</h3><p className="text-sm text-slate-500 mb-4">{user?.email}</p><div className="flex flex-wrap justify-center gap-2"><Badge label={user?.activo ? "Activo" : "Inactivo"} variant={user?.activo ? "success" : "neutral"} /><Badge label="Cliente" variant="info" /></div></Card>
-      <Card className="p-6 lg:col-span-2"><h4 className="font-semibold text-slate-800 text-sm mb-5" style={H}>Datos personales</h4><div className="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2">{[["Nombre", user?.nombre ?? "No disponible"], ["Email", user?.email ?? "No disponible"], ["Edad", user?.edad != null ? `${user.edad} años` : "No disponible"], ["Peso", user?.pesoKg != null ? `${user.pesoKg} kg` : "No disponible"], ["Altura", user?.alturaCm != null ? `${user.alturaCm} cm` : "No disponible"], ["IMC", user?.imc != null ? user.imc.toFixed(2) : "No disponible"], ["Objetivo", normalizeObjetivo(user?.objetivoFisico) || "No disponible"], ["Sexo", (user?.sexo ?? user?.sexoBiologico) ?? "No disponible"], ["Actividad física", user?.realizaActividadFisica ? `${user?.diasEntrenamientoSemana ?? "—"} días/semana` : user?.realizaActividadFisica === false ? "No realiza" : "No disponible"], ["Tipo de actividad", user?.realizaActividadFisica ? user?.tipoActividadFisica ?? "No disponible" : "—"], ["Tipo de entrenamiento", user?.realizaActividadFisica ? user?.tipoEntrenamiento ?? "No disponible" : "—"], ["Duración por sesión", user?.realizaActividadFisica ? user?.duracionPromedioSesionMinutos != null ? `${user.duracionPromedioSesionMinutos} min` : "No disponible" : "—"]].map(([label, val]) => <div key={label} className="flex items-center justify-between border-b border-slate-50 pb-3"><span className="text-xs text-slate-500 font-medium">{label}</span><span className="text-sm text-slate-800 font-medium" style={MONO}>{val}</span></div>)}</div>
+      <Card className="p-6 text-center"><div className="w-20 h-20 rounded-full bg-gradient-to-br from-teal-400 to-indigo-500 mx-auto flex items-center justify-center text-white text-2xl font-bold mb-4">{initials}</div><h3 className="font-semibold text-slate-800 text-lg mb-0.5 break-words" style={H}>{user?.nombre}</h3><p className="text-sm text-slate-500 mb-4 break-all">{user?.email}</p><div className="flex flex-wrap justify-center gap-2"><Badge label={user?.activo ? "Activo" : "Inactivo"} variant={user?.activo ? "success" : "neutral"} /><Badge label="Cliente" variant="info" /></div></Card>
+      <Card className="p-6 lg:col-span-2"><h4 className="font-semibold text-slate-800 text-sm mb-5" style={H}>Datos personales</h4><div className="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2">{[["Nombre", user?.nombre ?? "No disponible"], ["Email", user?.email ?? "No disponible"], ["Edad", user?.edad != null ? `${user.edad} años` : "No disponible"], ["Peso", user?.pesoKg != null ? `${user.pesoKg} kg` : "No disponible"], ["Altura", user?.alturaCm != null ? `${user.alturaCm} cm` : "No disponible"], ["IMC", user?.imc != null ? user.imc.toFixed(2) : "No disponible"], ["Objetivo", normalizeObjetivo(user?.objetivoFisico) || "No disponible"], ["Sexo", (user?.sexo ?? user?.sexoBiologico) ?? "No disponible"], ["Actividad física", user?.realizaActividadFisica ? `${user?.diasEntrenamientoSemana ?? "—"} días/semana` : user?.realizaActividadFisica === false ? "No realiza" : "No disponible"], ["Tipo de actividad", user?.realizaActividadFisica ? user?.tipoActividadFisica ?? "No disponible" : "—"], ["Tipo de entrenamiento", user?.realizaActividadFisica ? user?.tipoEntrenamiento ?? "No disponible" : "—"], ["Duración por sesión", user?.realizaActividadFisica ? user?.duracionPromedioSesionMinutos != null ? `${user.duracionPromedioSesionMinutos} min` : "No disponible" : "—"]].map(([label, val]) => <div key={label} className="flex items-start justify-between gap-3 border-b border-slate-50 pb-3"><span className="shrink-0 text-xs text-slate-500 font-medium">{label}</span><span className="min-w-0 break-all text-right text-sm text-slate-800 font-medium" style={MONO}>{val}</span></div>)}</div>
         {estrategiaLabel && (
           <div className="mt-5 rounded-xl border border-amber-100 bg-amber-50/70 p-3">
             <p className="text-xs font-semibold text-amber-800">Estrategia nutricional del sistema</p>
@@ -216,10 +257,13 @@ export default function ClientProfilePage() {
         {pesoEstado?.variacionKg != null && <div className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${pesoEstado.variacionKg > 0 ? "bg-amber-50 text-amber-700" : pesoEstado.variacionKg < 0 ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"}`}>{pesoEstado.variacionKg > 0 ? <TrendingUp size={13}/> : <TrendingDown size={13}/>} {pesoEstado.variacionKg > 0 ? "+" : ""}{pesoEstado.variacionKg} kg</div>}
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field label="Peso medido (kg)"><input type="number" min="1" max="500" step="0.01" value={nuevoPeso} onChange={e => { setNuevoPeso(e.target.value); setConfirmarPeso(false); }} disabled={pesoEstado != null && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE")} className={input}/></Field>
-        <button onClick={() => void registrarPeso(confirmarPeso)} disabled={guardandoPeso || !nuevoPeso || (pesoEstado != null && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE"))} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{guardandoPeso ? "Guardando..." : confirmarPeso ? "Confirmar y guardar" : "Guardar peso"}</button>
+        <Field label="Peso medido (kg)"><input aria-label="Peso semanal medido en kg" aria-invalid={!!pesoInvalido} aria-describedby={pesoInvalido ? "peso-validacion" : undefined} type="number" min="1" max="500" step="0.01" value={nuevoPeso} onChange={e => { setNuevoPeso(e.target.value); setConfirmarPeso(false); setErrorPeso(""); }} disabled={guardandoPeso || cargandoPesos || cargaPesoFallida || !pesoEstado?.habilitado} className={input}/>{pesoInvalido && <p id="peso-validacion" role="alert" className="mt-1 text-xs text-rose-700">{pesoInvalido}</p>}</Field>
+        <button onClick={() => void registrarPeso(confirmarPeso)} disabled={guardandoPeso || cargandoPesos || cargaPesoFallida || !nuevoPeso || !!pesoInvalido || !pesoEstado?.habilitado} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-45">{guardandoPeso ? "Guardando..." : confirmarPeso ? "Confirmar y guardar" : "Guardar peso"}</button>
       </div>
-      {pesoEstado && !pesoEstado.habilitado && pesoEstado.ultimaFecha !== new Date().toLocaleDateString("sv-SE") && <p className="mt-3 text-xs text-slate-500">Próximo registro disponible: {new Date(`${pesoEstado.proximaFecha}T00:00:00`).toLocaleDateString("es-PE", { dateStyle: "long" })}.</p>}
+      {pesoEstado && !pesoEstado.habilitado && <p className="mt-3 text-xs text-slate-500">Ya registraste tu medición semanal. Próximo registro disponible: {new Date(`${pesoEstado.proximaFecha}T00:00:00`).toLocaleDateString("es-PE", { dateStyle: "long" })}.</p>}
+      {cargandoPesos && <p role="status" className="mt-3 text-xs text-slate-500">Cargando seguimiento de peso…</p>}
+      {cargaPesoFallida && <div className="mt-3 text-xs text-slate-600"><p>{detalleCargaPeso}</p><button type="button" disabled={cargandoPesos} onClick={() => user?.clienteId && void cargarPesos(user.clienteId)} className="mt-2 text-teal-700 underline disabled:opacity-50">Reintentar carga del seguimiento de peso</button></div>}
+      <PesoCalendar registros={pesoHistorial} proximaFecha={pesoEstado?.proximaFecha} historialDisponible={historialPesoDisponible} cargando={cargandoPesos}/>
       <OperationNotice message={mensajePeso} kind="success"/>{errorPeso && <p role="alert" className="mt-3 text-xs text-rose-700">{errorPeso}</p>}
     </Card>
     <ObjetivoNutricionalCard clienteId={user?.clienteId} objetivoFisicoFallback={normalizeObjetivo(user?.objetivoFisico)} />
@@ -228,11 +272,11 @@ export default function ClientProfilePage() {
       open={editing}
       onOpenChange={setEditing}
       title="Actualizar datos personales"
-      description="Tu objetivo describe tu situación; el sistema deriva la estrategia. No se calcula déficit/superávit en frontend."
+      description="Tu objetivo describe tu situación; el sistema deriva la estrategia. No se calcula déficit/superávit aquí."
       footer={<><button onClick={() => setEditing(false)} disabled={saving} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700">Cancelar</button><button onClick={() => void save()} disabled={!valid || saving} className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45">{saving ? "Guardando..." : "Guardar cambios"}</button></>}
     >
       {error && <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3"><Field label="Edad (13–120)"><input aria-label="Edad" type="number" min="13" max="120" value={form.edad} onChange={e => setForm(current => ({ ...current, edad: e.target.value }))} className={input} /></Field><Field label="Peso (seguimiento semanal)"><input aria-label="Peso actual en kg" type="number" value={form.pesoKg} disabled className={`${input} bg-slate-50 text-slate-500`} /></Field><Field label="Altura (cm)"><input aria-label="Altura en cm" type="number" min="30" max="300" step="0.01" value={form.alturaCm} onChange={e => setForm(current => ({ ...current, alturaCm: e.target.value }))} className={input} /></Field></div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3"><Field label="Edad (13–120)"><input aria-label="Edad" type="number" inputMode="numeric" min="13" max="120" step="1" value={form.edad} onChange={e => setForm(current => ({ ...current, edad: e.target.value.replace(/\D/g, "") }))} onKeyDown={e => { if (["e", "E", "+", "-", ".", ","].includes(e.key)) e.preventDefault(); }} className={input} /></Field><Field label="Peso (seguimiento semanal)"><input aria-label="Peso actual en kg" type="number" value={form.pesoKg} disabled className={`${input} bg-slate-50 text-slate-500`} /></Field><Field label="Altura (cm)"><input aria-label="Altura en cm" type="number" min="30" max="300" step="0.01" value={form.alturaCm} onChange={e => setForm(current => ({ ...current, alturaCm: e.target.value }))} className={input} /></Field></div>
 
       <div className="mt-4">
         <span className="mb-2 block text-xs font-semibold text-slate-600">Sexo biológico</span>

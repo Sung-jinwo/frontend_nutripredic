@@ -13,7 +13,7 @@ const reasons: Record<string, string> = {
 const tooltipStyle = { borderRadius: 12, border: "1px solid #dbe7e1", boxShadow: "0 8px 24px rgba(23,60,54,.12)" };
 
 function reason(value: string | null) {
-  return value ? reasons[value] ?? value.replaceAll("_", " ").toLocaleLowerCase() : "El backend no informó el motivo.";
+  return value ? reasons[value] ?? value.replaceAll("_", " ").toLocaleLowerCase() : "No se informó el motivo.";
 }
 
 export default function AdminConsumoPage() {
@@ -36,7 +36,7 @@ export default function AdminConsumoPage() {
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return <LoadingState label="Cargando análisis de suplementación..." />;
-  if (error || !data) return <ErrorState message={error || "Respuesta vacía del backend."} />;
+  if (error || !data) return <ErrorState message={error || "No se recibió información del sistema."} />;
 
   const available = data.estadoDisponibilidad === "DISPONIBLE" && data.porcentajePcs != null && data.totalEvaluadosValidos > 0;
   const notHigh = Math.max(data.totalEvaluadosValidos - data.totalAltoConsumo, 0);
@@ -56,7 +56,7 @@ export default function AdminConsumoPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <KPICard icon={PieChartIcon} title="PCS oficial" value={data.porcentajePcs == null ? "—" : `${data.porcentajePcs.toFixed(1)}%`} sub="Clientes con alto consumo" iconBg="bg-indigo-600" />
         <KPICard icon={Users} title="Evaluados válidos" value={String(data.totalEvaluadosValidos)} sub="Última evaluación válida por cliente" iconBg="bg-teal-600" />
-        <KPICard icon={AlertTriangle} title="Alto consumo" value={String(data.totalAltoConsumo)} sub="Casos detectados por backend" iconBg="bg-rose-600" />
+        <KPICard icon={AlertTriangle} title="Alto consumo" value={String(data.totalAltoConsumo)} sub="Casos detectados por el sistema" iconBg="bg-rose-600" />
       </div>
 
       {!available && <Card className="border-l-4 border-l-amber-400 p-5"><div className="flex gap-3"><AlertTriangle className="mt-0.5 shrink-0 text-amber-500" size={20} /><div><h2 className="font-semibold text-slate-800">PCS no calculable</h2><p className="mt-1 text-sm text-slate-500">{reason(data.motivoNoDisponible)}</p></div></div></Card>}
@@ -72,7 +72,7 @@ export default function AdminConsumoPage() {
           ) : <div className="mt-5 flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed bg-slate-50 px-6 text-center"><PieChartIcon className="h-10 w-10 text-slate-300" /><p className="mt-3 font-semibold text-slate-700">Sin evaluaciones válidas</p><p className="mt-1 max-w-md text-sm text-slate-500">El gráfico se habilitará cuando exista al menos una clasificación de consumo válida.</p></div>}
         </Card>
 
-        <Card className="p-5 self-start"><div className="flex gap-3"><ShieldCheck className="mt-0.5 shrink-0 text-teal-600" size={20} /><div><h2 className="font-semibold text-slate-900">Qué significa “alto consumo”</h2><p className="mt-2 text-sm leading-6 text-slate-600">No se determina por la cantidad de suplementos distintos. El backend evalúa componentes, cantidades observadas, unidades y límites de la rúbrica vigente.</p></div></div></Card>
+        <Card className="p-5 self-start"><div className="flex gap-3"><ShieldCheck className="mt-0.5 shrink-0 text-teal-600" size={20} /><div><h2 className="font-semibold text-slate-900">Qué significa “alto consumo”</h2><p className="mt-2 text-sm leading-6 text-slate-600">No se determina por la cantidad de suplementos distintos. El sistema evalúa componentes, cantidades observadas, unidades y límites de la rúbrica vigente.</p></div></div></Card>
       </div>
     </div>
   );

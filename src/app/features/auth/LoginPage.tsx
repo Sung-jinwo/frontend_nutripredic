@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, Brain, ClipboardCheck, LockKeyhole } from "lucide-react";
+import { ArrowRight, Brain, ClipboardCheck, Eye, EyeOff, LockKeyhole } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { FONT_HEADING } from "../../types";
@@ -12,6 +12,7 @@ export default function LoginPage() {
   const auth = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,7 +46,7 @@ export default function LoginPage() {
         <div className="relative max-w-md">
           <p className="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-[#d8e85f]">Tu información, en orden</p>
           <h1 className="text-4xl font-semibold leading-[1.08] tracking-[-0.035em]" style={FONT_HEADING}>Hábitos reales.<br />Seguimiento claro.</h1>
-          <p className="mt-5 max-w-sm text-sm leading-6 text-emerald-50/70">Registra alimentación y suplementos desde una sola ficha. Las funciones predictivas se mostrarán únicamente cuando el modelo esté integrado y validado.</p>
+          <p className="mt-5 max-w-sm text-sm leading-6 text-emerald-50/70">Registra alimentación y suplementos desde una sola ficha. Las funciones predictivas se mostrarán únicamente cuando el modelo esté disponible y validado.</p>
           <div className="mt-9 border-l border-white/20 pl-5">
             <div className="flex gap-3"><ClipboardCheck className="mt-0.5 text-[#d8e85f]" size={17} /><div><p className="text-sm font-medium">Datos conectados </p><p className="mt-1 text-xs leading-5 text-emerald-50/55">Sin resultados simulados ni clasificaciones inventadas.</p></div></div>
           </div>
@@ -68,7 +69,7 @@ export default function LoginPage() {
               {emailError && <span id="login-email-error" className="mt-1.5 block text-xs font-normal text-rose-600">{emailError}</span>}
             </label>
             <label className="block text-sm font-medium text-slate-700" htmlFor="login-password">Contraseña
-              <div className="relative mt-2"><LockKeyhole size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input id="login-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" disabled={loading} aria-invalid={Boolean(passwordError)} aria-describedby={passwordError ? "login-password-error" : undefined} placeholder="Tu contraseña" className={`w-full rounded-xl border bg-white py-3 pl-11 pr-4 text-sm shadow-[0_1px_0_rgba(15,23,42,.04)] outline-none transition focus:ring-3 ${passwordError ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100" : "border-slate-200 focus:border-[#397065] focus:ring-emerald-100"}`} /></div>
+              <div className="relative mt-2"><LockKeyhole size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input id="login-password" type={showPassword ? "text" : "password"} value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" disabled={loading} aria-invalid={Boolean(passwordError)} aria-describedby={passwordError ? "login-password-error" : undefined} placeholder="Tu contraseña" className={`w-full rounded-xl border bg-white py-3 pl-11 pr-11 text-sm shadow-[0_1px_0_rgba(15,23,42,.04)] outline-none transition focus:ring-3 ${passwordError ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100" : "border-slate-200 focus:border-[#397065] focus:ring-emerald-100"}`} /><button type="button" onClick={() => setShowPassword(v => !v)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600">{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div>
               {passwordError && <span id="login-password-error" className="mt-1.5 block text-xs font-normal text-rose-600">{passwordError}</span>}
             </label>
             <button type="submit" disabled={loading} className="group flex w-full items-center justify-center gap-2 rounded-xl bg-[#173c36] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#225148] disabled:cursor-not-allowed disabled:opacity-55">{loading ? "Verificando..." : "Iniciar sesión"}<ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" /></button>

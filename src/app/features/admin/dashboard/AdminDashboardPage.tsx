@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
   const priorities = useMemo(() => dashboard ? buildPriorities(dashboard) : [], [dashboard]);
 
   if (loading) return <div className="flex min-h-[420px] items-center justify-center"><div className="text-center"><RefreshCw className="mx-auto h-8 w-8 animate-spin text-teal-700" /><p className="mt-3 text-sm font-medium text-slate-600">Cargando indicadores administrativos…</p></div></div>;
-  if (error || !dashboard) return <><OperationNotice message={error || "Respuesta vacía del backend."}/><Card><CardContent className="flex flex-col items-center gap-3 py-10 text-center"><ShieldAlert className="h-9 w-9 text-muted-foreground" /><p className="font-semibold">No fue posible cargar el dashboard</p><p className="text-sm text-muted-foreground">Consulta el detalle en Notificaciones.</p><Button variant="outline" onClick={() => void loadDashboard()}><RefreshCw className="mr-2 h-4 w-4" /> Reintentar</Button></CardContent></Card></>;
+  if (error || !dashboard) return <><OperationNotice message={error || "No se recibió información del sistema."}/><Card><CardContent className="flex flex-col items-center gap-3 py-10 text-center"><ShieldAlert className="h-9 w-9 text-muted-foreground" /><p className="font-semibold">No fue posible cargar el dashboard</p><p className="text-sm text-muted-foreground">Consulta el detalle en Notificaciones.</p><Button variant="outline" onClick={() => void loadDashboard()}><RefreshCw className="mr-2 h-4 w-4" /> Reintentar</Button></CardContent></Card></>;
 
   const { pcc, pcs, tpp } = dashboard;
   return <div className="space-y-6">

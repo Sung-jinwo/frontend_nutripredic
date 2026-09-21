@@ -8,7 +8,7 @@ const tooltipStyle = { borderRadius: 12, border: "1px solid #dbe7e1", boxShadow:
 
 function reason(value: string | null) {
   if (value === "SIN_ANALISIS_VALIDOS") return "Aún no existen ciclos diarios V6 completos, generados y con duración activa válida.";
-  return value?.replaceAll("_", " ").toLocaleLowerCase() || "El backend no informó el motivo.";
+  return value?.replaceAll("_", " ").toLocaleLowerCase() || "No se informó el motivo.";
 }
 
 export default function AdminTiempoPage() {
@@ -31,7 +31,7 @@ export default function AdminTiempoPage() {
   useEffect(() => { void load(); }, [load]);
 
   if (loading) return <LoadingState label="Cargando rendimiento predictivo..." />;
-  if (error || !data) return <ErrorState message={error || "Respuesta vacía del backend."} />;
+  if (error || !data) return <ErrorState message={error || "No se recibió información del sistema."} />;
 
   const available = data.estadoDisponibilidad === "DISPONIBLE" && data.promedioTppMs != null;
   const total = data.totalAnalisisValidos + data.totalAnalisisExcluidos;

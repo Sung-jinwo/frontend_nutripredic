@@ -33,7 +33,7 @@ export function setNotificationUser(userId: number | null) {
       const stored: unknown = JSON.parse(localStorage.getItem(storageKey()) ?? "[]");
       if (Array.isArray(stored)) items = stored.filter((item): item is AppNotification =>
         item && typeof item.id === "string" && typeof item.message === "string" &&
-        ["success", "error", "info"].includes(item.kind) && typeof item.read === "boolean" &&
+        item.kind === "info" && typeof item.read === "boolean" &&
         typeof item.createdAt === "string" && Number.isFinite(Date.parse(item.createdAt))).slice(0, 100);
     } catch { /* Ignore invalid or unavailable storage. */ }
   }
@@ -45,14 +45,17 @@ function notify(kind: NotificationKind, message: string, options?: { id?: string
   const now = Date.now();
   if (now - (recent.get(key) ?? 0) < 8000) return;
   // Some pages add context to an API error already shown by the HTTP client.
-  if (kind === "error" && items.some(item => item.kind === kind &&
-    now - Date.parse(item.createdAt) < 8000 &&
-    (message.includes(item.message) || item.message.includes(message)))) return;
+  if (kind === "error" && [...recent].some(([previousKey, timestamp]) =>
+    previousKey.startsWith("error:") && now - timestamp < 8000 &&
+    (message.includes(previousKey.slice(6)) || previousKey.slice(6).includes(message)))) return;
   for (const [previousKey, timestamp] of recent) if (now - timestamp >= 8000) recent.delete(previousKey);
   recent.set(key, now);
   const id = globalThis.crypto?.randomUUID?.() ?? `${now}-${Math.random().toString(36).slice(2)}`;
-  items = [{ id, kind, message, createdAt: new Date(now).toISOString(), read: false }, ...items].slice(0, 100);
-  publish();
+  // Request errors and save confirmations are transient, not account notifications.
+  if (kind === "info") {
+    items = [{ id, kind, message, createdAt: new Date(now).toISOString(), read: false }, ...items].slice(0, 100);
+    publish();
+  }
   return sonner[kind](message, { id: options?.id ?? id });
 }
 

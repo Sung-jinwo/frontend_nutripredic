@@ -1,4 +1,5 @@
 import { toast } from "./notifications";
+import { apiErrorMessage, readFieldErrors } from "./validation-errors";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
@@ -6,6 +7,7 @@ const TOKEN_KEY = "nutripredict_access_token";
 export const SESSION_EXPIRED_EVENT = "nutripredict:session-expired";
 
 export class ApiError extends Error {
+  get fieldErrors() { return readFieldErrors(this.details); }
   constructor(
     message: string,
     public readonly status: number,
@@ -22,10 +24,10 @@ export const tokenStorage = {
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
 
-type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown; auth?: boolean; silentStatuses?: number[]; notifySuccess?: boolean };
+type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown; auth?: boolean; silentStatuses?: number[]; notifySuccess?: boolean; notifyError?: boolean };
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, auth = true, headers, silentStatuses = [], notifySuccess = true, ...init } = options;
+  const { body, auth = true, headers, silentStatuses = [], notifySuccess = true, notifyError = true, ...init } = options;
   const token = tokenStorage.get();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -38,7 +40,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     body: body === undefined ? undefined : JSON.stringify(body),
   }).catch(() => {
     const message = "No se pudo conectar con el servidor. Comprueba la conexión e inténtalo nuevamente.";
-    toast.error(message, { id: "api-network-error" });
+    if (notifyError) toast.error(message, { id: "api-network-error" });
     throw new ApiError(message, 0);
   });
 
@@ -52,11 +54,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       tokenStorage.clear();
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
     }
-    const message =
-      (payload && typeof payload === "object" && "message" in payload && String(payload.message)) ||
-      (typeof payload === "string" && payload) ||
-      `Error HTTP ${response.status}`;
-    if (!silentStatuses.includes(response.status)) toast.error(message, { id: `api-error-${path}-${response.status}` });
+    const message = apiErrorMessage(payload, `Error HTTP ${response.status}`);
+    if (notifyError && !silentStatuses.includes(response.status)) toast.error(message, { id: `api-error-${path}-${response.status}` });
     throw new ApiError(message, response.status, payload);
   }
 

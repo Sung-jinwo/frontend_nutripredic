@@ -82,7 +82,7 @@ function EmptyChart({ reason }: { reason?: string | null }) {
       <BarChart3 className="h-10 w-10 text-slate-300" />
       <p className="mt-3 font-semibold text-slate-700">Sin información calculable</p>
       <p className="mt-1 max-w-md text-sm text-slate-500">
-        {reason ? reason.replaceAll("_", " ") : "El backend todavía no dispone de registros válidos para este informe."}
+        {reason ? reason.replaceAll("_", " ") : "El sistema todavía no dispone de registros válidos para este informe."}
       </p>
     </div>
   );
@@ -196,7 +196,7 @@ export default function AdminReportesPage() {
   if (error || !dashboard) {
     return (
       <div className="space-y-4">
-        <ErrorState message={error || "El backend devolvió una respuesta vacía."} />
+        <ErrorState message={error || "No se recibió información del sistema."} />
         <button onClick={() => void load()} className="inline-flex items-center gap-2 rounded-xl bg-[#173c36] px-4 py-2 text-sm font-semibold text-white">
           <RefreshCw size={15} /> Reintentar
         </button>
@@ -274,7 +274,7 @@ export default function AdminReportesPage() {
             <Card className="p-5 sm:p-6">
               <div>
                 <h2 className="font-semibold text-slate-900">Comparación de indicadores porcentuales</h2>
-                <p className="mt-1 text-sm text-slate-500">Solo se incluyen porcentajes calculados por el backend.</p>
+                <p className="mt-1 text-sm text-slate-500">Solo se incluyen porcentajes calculados por el sistema.</p>
               </div>
               {executiveComparison.length > 0 ? (
                 <div className="mt-4 h-[310px] min-w-0">
@@ -381,7 +381,7 @@ export default function AdminReportesPage() {
 
           <Card className="p-5 sm:p-6">
             <h2 className="font-semibold text-slate-900">Exclusiones del cálculo</h2>
-            <p className="mt-1 text-sm text-slate-500">Registros omitidos y motivo informado por el backend.</p>
+            <p className="mt-1 text-sm text-slate-500">Registros omitidos y motivo informado por el sistema.</p>
             {tppExclusions.length > 0 ? (
               <div className="mt-4 space-y-2">
                 {tppExclusions.map((item) => (
@@ -402,7 +402,7 @@ export default function AdminReportesPage() {
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h2 className="font-semibold text-slate-900">Exportación del informe actual</h2>
-            <p className="mt-1 text-xs text-slate-500">Se habilitará cuando el backend defina generación de archivos, período consultado y trazabilidad.</p>
+            <p className="mt-1 text-xs text-slate-500">Se habilitará cuando el sistema defina generación de archivos, período consultado y trazabilidad.</p>
           </div>
           <div className="flex gap-2">
             <button disabled className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-400">

@@ -7,6 +7,8 @@ import { ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { analisisPredictivoService } from "../services/analisis-predictivo.service";
 import { indicadoresService } from "../services/indicadores.service";
+import { useLimaDate } from "../hooks/useLimaDate";
+import { conocimientoIaService } from "../services/conocimiento-ia.service";
 
 const PATH_TO_VIEW: Record<string, View> = {
   "/client/home": "client-home",
@@ -31,6 +33,7 @@ const PATH_TO_VIEW: Record<string, View> = {
 export function AppLayout() {
   const location = useLocation();
   const { user, profileComplete } = useAuth();
+  const fecha = useLimaDate();
   const view = PATH_TO_VIEW[location.pathname] || "client-home";
   const breadcrumb = BREADCRUMBS[view] || "";
   const [demoStatus, setDemoStatus] = useState<Awaited<ReturnType<typeof indicadoresService.demoStatus>> | null>(null);
@@ -45,7 +48,6 @@ export function AppLayout() {
 
   useEffect(() => {
     if (user?.rol !== "CLIENTE" || !user.clienteId || !profileComplete) return;
-    const fecha = new Date().toLocaleDateString("sv-SE");
     const key = `nutripredict:ciclo-diario:${user.clienteId}:${fecha}`;
     if (sessionStorage.getItem(key)) return;
     const publish = (result: Awaited<ReturnType<typeof analisisPredictivoService.estadoCicloDiario>>) => {
@@ -57,13 +59,18 @@ export function AppLayout() {
         // El primer ingreso inicia el ciclo. Un ciclo fallido o ya iniciado sólo se
         // reintenta mediante la acción explícita de la vista Análisis.
         if (estado.estado === "PENDIENTE" && estado.prediccionId == null) {
-          publish(await analisisPredictivoService.asegurarCicloDiario(user.clienteId!));
+          const ciclo = await analisisPredictivoService.asegurarCicloDiario(user.clienteId!);
+          publish(ciclo);
+          if (ciclo.estado === "PENDIENTE" && ciclo.prediccionId == null) {
+            await conocimientoIaService.diariaPerfil(user.clienteId!);
+            publish(ciclo);
+          }
           return;
         }
         publish(estado);
       })
       .catch(() => undefined);
-  }, [profileComplete, user?.clienteId, user?.rol]);
+  }, [profileComplete, user?.clienteId, user?.rol, fecha]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f3ed]" style={{ fontFamily: "'Inter', sans-serif" }}>

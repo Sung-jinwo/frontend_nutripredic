@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, Droplets, Edit2, Plus, Trash2, Utensils, Apple, Cookie, CupSoda, Pill, Wheat, X, Flame, Clock3, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "../../../services/notifications";
@@ -12,10 +12,14 @@ import { unidadesService, type UnidadMedidaResponse } from "../../../services/un
 import { resumenDiarioService, type ResumenDiarioResponse } from "../../../services/resumen-diario.service";
 import { FONT_HEADING } from "../../../types";
 import { orientacionService, type OrientacionResponse } from "../../../services/orientacion.service";
+import { FoodPublicSearch } from "./FoodPublicSearch";
+import type { AlimentoUsda } from "../../../services/alimentacion.service";
+import { catalogReference, savedReference, scaleReference, type FoodReference } from "./food-reference";
+import { useLimaDate } from "../../../hooks/useLimaDate";
 
 type WizardType = "ALIMENTO" | "SUPLEMENTO" | "AGUA" | null;
 
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
 const fmtDateLong = (iso: string) => {
   try { return new Date(`${iso}T00:00:00`).toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long" }); } catch { return iso; }
 };
@@ -95,6 +99,13 @@ export default function ClientHabitosPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState(today());
+  const fechaHoy = useLimaDate();
+  const fechaAnterior = useRef(fechaHoy);
+  useEffect(() => {
+    const anterior = fechaAnterior.current;
+    fechaAnterior.current = fechaHoy;
+    setSelectedDate(actual => actual === anterior ? fechaHoy : actual);
+  }, [fechaHoy]);
   const [records, setRecords] = useState<HabitoResponse[]>([]);
   const [foodCatalog, setFoodCatalog] = useState<AlimentoCatalogoResponse[]>([]);
   const [recent, setRecent] = useState<AlimentoUsoResponse[]>([]);
@@ -111,6 +122,8 @@ export default function ClientHabitosPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardType, setWizardType] = useState<WizardType>(null);
   const [foodSearch, setFoodSearch] = useState("");
+  const [usdaFood, setUsdaFood] = useState<AlimentoUsda | null>(null);
+  const [foodReference, setFoodReference] = useState<FoodReference | null>(null);
   const [foodSelection, setFoodSelection] = useState("");
   const [foodAmount, setFoodAmount] = useState("");
   const [foodUnit, setFoodUnit] = useState("");
@@ -194,18 +207,35 @@ export default function ClientHabitosPage() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void refreshResumen(selectedDate); }, [selectedDate, refreshResumen]);
+  useEffect(() => {
+    const update = () => {
+      void refreshResumen(selectedDate);
+      if (user?.clienteId) void orientacionService.obtener(user.clienteId).then(setOrientacion).catch(() => setOrientacion(null));
+    };
+    window.addEventListener("nutripredict:ciclo-diario-actualizado", update);
+    return () => window.removeEventListener("nutripredict:ciclo-diario-actualizado", update);
+  }, [selectedDate, refreshResumen, user?.clienteId]);
   useEffect(() => { void refreshDayDetails(); }, [refreshDayDetails]);
   useEffect(() => {
     if (!user?.clienteId) return;
     void orientacionService.obtener(user.clienteId).then(setOrientacion).catch(() => setOrientacion(null));
   }, [user?.clienteId]);
   useEffect(() => {
-    if (!user?.clienteId || !todayHabit) { setHabituals([]); return; }
-    void suplementosService.habituals(user.clienteId, todayHabit.fecha).then(setHabituals).catch(() => setHabituals([]));
-  }, [todayHabit, user?.clienteId]);
+    if (!user?.clienteId) { setHabituals([]); return; }
+    void suplementosService.habituals(user.clienteId, selectedDate).then(setHabituals).catch(() => setHabituals([]));
+  }, [selectedDate, user?.clienteId]);
 
   const selectedFood = foodCatalog.find((i) => i.id === Number(foodSelection));
   const selectedFoodMacros = getCatalogMacros(selectedFood);
+
+  useEffect(() => {
+    const ref = usdaFood ? { cantidad: 100, unidad: "G", proteinaG: usdaFood.proteinaG, carbohidratosG: usdaFood.carbohidratosG, grasasG: usdaFood.grasasG } : foodReference;
+    if (!ref) return;
+    const scaled = scaleReference(ref, Number(foodAmount), foodUnit);
+    setFoodProtein(scaled ? String(scaled.proteinaG) : "");
+    setFoodCarbs(scaled ? String(scaled.carbohidratosG) : "");
+    setFoodFat(scaled ? String(scaled.grasasG) : "");
+  }, [usdaFood, foodReference, foodAmount, foodUnit]);
 
   const ensureHabit = async (): Promise<HabitoResponse> => {
     if (todayHabit) return todayHabit;
@@ -225,17 +255,21 @@ export default function ClientHabitosPage() {
   };
 
   const handleAddFood = async () => {
-    if (!foodSearch.trim() || Number(foodAmount) <= 0 || !foodUnit || [foodProtein, foodCarbs, foodFat].some((value) => value === "" || Number(value) < 0)) return;
+    if (!foodSearch.trim() || !Number.isFinite(Number(foodAmount)) || Number(foodAmount) <= 0 || (usdaFood && Number(foodAmount) > 10000) || !foodUnit || [foodProtein, foodCarbs, foodFat].some((value) => value === "" || !Number.isFinite(Number(value)) || Number(value) < 0)) return;
     setSaving(true); setError("");
     try {
       const habit = await ensureHabit();
-      if (editFood) {
+      if (usdaFood) {
+        const data = { fdcId: usdaFood.fdcId, gramos: Number(foodAmount), momentoComida: foodMoment };
+        if (editFood) await alimentacionService.updateUsda(habit.id, editFood.id, data);
+        else await alimentacionService.addUsda(habit.id, data);
+      } else if (editFood) {
         await alimentacionService.updateInHabit(habit.id, editFood.id, { alimentoId: selectedFood?.id ?? null, nombreAlimento: foodSearch.trim(), cantidad: Number(foodAmount), unidadCodigo: foodUnit, momentoComida: foodMoment, proteinaG: Number(foodProtein), carbohidratosG: Number(foodCarbs), grasasG: Number(foodFat) });
       } else {
         await alimentacionService.addToHabit(habit.id, { alimentoId: selectedFood?.id ?? null, nombreAlimento: foodSearch.trim(), cantidad: Number(foodAmount), unidadCodigo: foodUnit, momentoComida: foodMoment, proteinaG: Number(foodProtein), carbohidratosG: Number(foodCarbs), grasasG: Number(foodFat) });
       }
       setWizardOpen(false); setWizardType(null); setEditFood(null);
-      setFoodSearch(""); setFoodSelection(""); setFoodAmount(""); setFoodUnit("");
+      setFoodSearch(""); setFoodSelection(""); setFoodAmount(""); setFoodUnit(""); setUsdaFood(null);
       // SSOT: refrescar resumen-diario
       await Promise.all([refreshDayDetails(), refreshResumen(selectedDate), load()]);
     } catch (cause) {
@@ -286,12 +320,13 @@ export default function ClientHabitosPage() {
   };
 
   const openWizard = (type: WizardType) => {
+    setUsdaFood(null); setFoodReference(null); setConsumptionTakes("1");
     setWizardType(type); setWizardOpen(true); setError("");
     setFoodSearch(""); setFoodSelection(""); setFoodAmount(""); setFoodUnit(""); setFoodMoment("ALMUERZO");
     setFoodProtein(""); setFoodCarbs(""); setFoodFat("");
     setSupplementSelection(""); setConsumptionAmount(""); setConsumptionUnit(""); setWaterAmount("");
     setEditFood(null); setEditConsumo(null);
-    if (type === "SUPLEMENTO" && user?.clienteId && todayHabit) { void suplementosService.habituals(user.clienteId, todayHabit.fecha).then(setHabituals).catch(() => {}); }
+    if (type === "SUPLEMENTO" && user?.clienteId) { void suplementosService.habituals(user.clienteId, selectedDate).then(setHabituals).catch(() => {}); }
   };
 
   const quickWaterMl = 250;
@@ -358,7 +393,7 @@ export default function ClientHabitosPage() {
                   kcal={displayMacros?.kcal ?? null}
                   macros={displayMacros}
                   onDetail={() => { setDetailFood(a); toast.info("Detalle del alimento cargado."); }}
-                  onEdit={() => { setEditFood(a); setFoodSearch(a.nombre); setFoodSelection(a.alimentoId == null ? "" : String(a.alimentoId)); setFoodAmount(String(a.cantidad)); setFoodUnit(a.unidad); setFoodMoment(a.momentoComida); setFoodProtein(String(a.proteinaG)); setFoodCarbs(String(a.carbohidratosG)); setFoodFat(String(a.grasasG)); setWizardType("ALIMENTO"); setWizardOpen(true); }}
+                  onEdit={() => { setUsdaFood(null); setFoodReference(null); setEditFood(a); setFoodSearch(a.nombre); setFoodSelection(a.alimentoId == null ? "" : String(a.alimentoId)); setFoodAmount(String(a.cantidad)); setFoodUnit(a.unidad); setFoodMoment(a.momentoComida); setFoodProtein(String(a.proteinaG)); setFoodCarbs(String(a.carbohidratosG)); setFoodFat(String(a.grasasG)); setWizardType("ALIMENTO"); setWizardOpen(true); }}
                   onDelete={() => setConfirmDeleteFood(a)}
                 />
               );
@@ -371,8 +406,8 @@ export default function ClientHabitosPage() {
                   icon={<Pill size={16} />}
                   iconBg="bg-indigo-500 text-white"
                   title={[c.nombre, c.marca].filter(Boolean).join(" · ")}
-                  subtitle={`${hora ? `${hora} · ` : ""}${c.cantidadConsumida} ${c.unidad} · ${c.numeroTomas ?? 1} toma(s)`}
-                  onEdit={() => { setEditConsumo(c); setSupplementSelection(String(c.suplementoClienteId)); setConsumptionAmount(String(c.cantidadConsumida)); setConsumptionUnit(c.unidad); setConsumptionTakes(String(c.numeroTomas ?? 1)); setWizardType("SUPLEMENTO"); setWizardOpen(true); }}
+                  subtitle={`${hora ? `${hora} · ` : ""}${c.cantidadConsumida * (c.numeroTomas ?? 1)} ${c.unidad} en total`}
+                  onEdit={() => { setEditConsumo(c); setSupplementSelection(String(c.suplementoClienteId)); setConsumptionAmount(String(c.cantidadConsumida * (c.numeroTomas ?? 1))); setConsumptionUnit(c.unidad); setConsumptionTakes("1"); setWizardType("SUPLEMENTO"); setWizardOpen(true); }}
                   onDelete={() => setConfirmDeleteSup(c)}
                   bg="bg-indigo-50/40 border-indigo-100"
                 />
@@ -448,10 +483,10 @@ export default function ClientHabitosPage() {
                 </label>
                 {habituals.length===0 && <p className="text-xs text-slate-500">No tienes suplementos habituales para esta fecha. <button onClick={()=>{ setWizardOpen(false); navigate("/client/suplementos");}} className="text-indigo-700 underline">Configurar</button></p>}
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Cantidad en cada toma</span><input type="number" min="0.0001" step="any" value={consumptionAmount} onChange={(e)=>setConsumptionAmount(e.target.value)} className={inputClass} /></label>
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Cantidad total consumida</span><input type="number" min="0.0001" step="any" value={consumptionAmount} onChange={(e)=>setConsumptionAmount(e.target.value)} className={inputClass} /></label>
                   <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Unidad de la etiqueta</span><select value={consumptionUnit} onChange={(e)=>setConsumptionUnit(e.target.value)} className={inputClass}><option value="">Seleccionar</option>{units.map(u=><option key={u.codigo} value={u.codigo}>{u.nombre} ({u.codigo})</option>)}</select></label>
                 </div>
-                <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Número de tomas realizadas hoy</span><input type="number" min={1} step={1} value={consumptionTakes} onChange={(e)=>setConsumptionTakes(e.target.value)} className={inputClass} /></label>
+                <p className="text-xs text-slate-600">Indica el total de este registro, no el tamaño de una toma. Por ejemplo: dos porciones de 5 g = 10 g. Si ya registraste una parte hoy, agrega solo lo que falta.</p>
                 {selectedHabitual && supplementPreview && (
                   <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
                     <p className="text-xs font-semibold text-emerald-800">Aporte total que se registrará hoy</p>
@@ -464,9 +499,10 @@ export default function ClientHabitosPage() {
                       {supplementPreview.caffeine != null && <span className="rounded-full border bg-white px-2.5 py-1 text-xs text-slate-700">Cafeína {supplementPreview.caffeine} mg</span>}
                       {supplementPreview.sodium != null && <span className="rounded-full border bg-white px-2.5 py-1 text-xs text-slate-700">Sodio {supplementPreview.sodium} mg</span>}
                     </div>
-                    <p className="mt-2 text-xs leading-4 text-slate-500">Fórmula: cantidad por toma ÷ tamaño de porción de la etiqueta × número de tomas × componente por porción.</p>
+                    <p className="mt-2 text-xs leading-4 text-slate-500">Aporte = cantidad total ÷ tamaño de porción de la etiqueta × componente por porción. El consumo alto se evalúa por componentes cuantificados y límites oficiales, no por número de suplementos.</p>
                   </div>
                 )}
+                {selectedHabitual && !supplementPreview && <p className="text-xs text-amber-800">Para calcular el aporte, utiliza la misma unidad y el tamaño de porción configurados en Mis suplementos. Una composición incompleta no permite concluir que el consumo sea seguro.</p>}
                 <p className="text-xs leading-4 text-slate-400">Se usa la composición registrada en Mis suplementos; no se vuelve a pedir marca/macros.</p>
                 <div className="flex justify-end gap-2">
                   <button onClick={()=>setWizardType(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Atrás</button>
@@ -475,24 +511,36 @@ export default function ClientHabitosPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Nombre de la comida</span><input value={foodSearch} onChange={(e)=>{ setFoodSearch(e.target.value); setFoodSelection(""); }} placeholder="Ej. arroz con pollo" maxLength={200} className={inputClass} aria-label="Nombre de la comida" /></label>
+                <FoodPublicSearch value={foodSearch} selected={!!(usdaFood || foodReference || foodSelection)}
+                  onChange={value => { setFoodSearch(value); setFoodSelection(""); setUsdaFood(null); setFoodReference(null); setFoodProtein(""); setFoodCarbs(""); setFoodFat(""); }}
+                  recent={recent} frequent={frequent} catalog={foodCatalog}
+                  onSelect={food => { setUsdaFood(food); setFoodReference(null); setFoodSelection(""); setFoodSearch(food.nombre); setFoodAmount("100"); setFoodUnit("G"); }}
+                  onSaved={food => {
+                    setUsdaFood(null); setFoodReference(savedReference(food));
+                    setFoodSelection(food.alimentoId == null ? "" : String(food.alimentoId));
+                    setFoodSearch(food.nombre); setFoodAmount(String(food.ultimaCantidad)); setFoodUnit(food.ultimaUnidad); setFoodMoment(food.ultimoMomento);
+                    setFoodProtein(""); setFoodCarbs(""); setFoodFat("");
+                    if (!savedReference(food)) toast.info("Este registro no conserva los tres nutrientes. Completa datos verificados o selecciona un alimento con composición.");
+                  }}
+                  onCatalog={food => {
+                    const ref = catalogReference(food); setUsdaFood(null); setFoodReference(ref);
+                    setFoodSelection(String(food.id)); setFoodSearch(food.nombre); setFoodAmount(String(food.cantidadReferencia ?? 100)); setFoodUnit(food.unidadReferencia ?? food.unidadBase ?? "");
+                    setFoodProtein(""); setFoodCarbs(""); setFoodFat("");
+                    if (!ref) toast.info("Este alimento no tiene composición completa. Completa datos verificados.");
+                  }} />
+                {usdaFood && <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-900"><p>Composición USDA seleccionada. Indica los gramos consumidos; los nutrientes se calculan automáticamente y se verifican al guardar.</p><a href={usdaFood.fuente} target="_blank" rel="noreferrer" className="underline">Ver fuente USDA · CC0</a></div>}
+                {foodReference && <div className="rounded-xl bg-teal-50 p-3 text-xs text-teal-900"><p>Composición guardada: los nutrientes se ajustan proporcionalmente a la cantidad consumida, usando la misma unidad ({foodReference.unidad}).</p><button type="button" onClick={() => { setFoodReference(null); setFoodSelection(""); }} className="mt-1 underline">Editar nutrientes manualmente</button></div>}
                 {selectedFood && <FoodNutritionInfo food={selectedFood} macros={selectedFoodMacros} />}
-                {(recent.length>0 || frequent.length>0) && !foodSearch.trim() && (
-                  <div className="space-y-2">
-                    {recent.length>0 && <div><p className="mb-1 text-xs font-semibold text-slate-500">Recientes</p><div className="flex flex-wrap gap-1">{recent.slice(0,4).map((s,index)=> <button key={`r-${s.alimentoId ?? s.nombre}-${index}`} onClick={()=>{ setFoodSelection(s.alimentoId == null ? "" : String(s.alimentoId)); setFoodSearch(s.nombre); setFoodAmount(String(s.ultimaCantidad)); setFoodUnit(s.ultimaUnidad); setFoodMoment(s.ultimoMomento); }} className="rounded-full border bg-white px-3 py-1 text-xs">{s.nombre}</button>)}</div></div>}
-                    {frequent.length>0 && <div><p className="mb-1 text-xs font-semibold text-slate-500">Frecuentes</p><div className="flex flex-wrap gap-1">{frequent.slice(0,4).map((s,index)=> <button key={`f-${s.alimentoId ?? s.nombre}-${index}`} onClick={()=>{ setFoodSelection(s.alimentoId == null ? "" : String(s.alimentoId)); setFoodSearch(s.nombre); setFoodAmount(String(s.ultimaCantidad)); setFoodUnit(s.ultimaUnidad); setFoodMoment(s.ultimoMomento); }} className="rounded-full border bg-white px-3 py-1 text-xs">{s.nombre}</button>)}</div></div>}
-                  </div>
-                )}
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Cantidad consumida</span><input type="number" value={foodAmount} onChange={(e)=>setFoodAmount(e.target.value)} placeholder="Ej. 65" className={inputClass} /></label>
-                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Unidad</span><select value={foodUnit} onChange={(e)=>setFoodUnit(e.target.value)} className={inputClass}><option value="">Seleccionar</option>{units.map(u=><option key={u.codigo} value={u.codigo}>{u.nombre} ({u.codigo})</option>)}</select></label>
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Cantidad consumida{usdaFood ? " (gramos)" : ""}</span><input type="number" min="0.0001" max={usdaFood ? 10000 : undefined} step="any" value={foodAmount} onChange={(e)=>setFoodAmount(e.target.value)} placeholder="Ej. 65" className={inputClass} /></label>
+                  <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Unidad</span><select disabled={!!(usdaFood || foodReference)} value={foodUnit} onChange={(e)=>setFoodUnit(e.target.value)} className={inputClass}><option value="">Seleccionar</option>{units.map(u=><option key={u.codigo} value={u.codigo}>{u.nombre} ({u.codigo})</option>)}</select></label>
                 </div>
-                <div className="grid grid-cols-3 gap-3"><label><span className="mb-1 block text-xs font-semibold text-slate-600">Proteínas (g)</span><input type="number" min="0" value={foodProtein} onChange={e=>setFoodProtein(e.target.value)} className={inputClass}/></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">Carbos (g)</span><input type="number" min="0" value={foodCarbs} onChange={e=>setFoodCarbs(e.target.value)} className={inputClass}/></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">Grasas (g)</span><input type="number" min="0" value={foodFat} onChange={e=>setFoodFat(e.target.value)} className={inputClass}/></label></div>
+                <div className="grid grid-cols-3 gap-3"><label><span className="mb-1 block text-xs font-semibold text-slate-600">Proteínas (g)</span><input readOnly={!!(usdaFood || foodReference)} type="number" min="0" value={foodProtein} onChange={e=>setFoodProtein(e.target.value)} className={inputClass}/></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">Carbos (g)</span><input readOnly={!!(usdaFood || foodReference)} type="number" min="0" value={foodCarbs} onChange={e=>setFoodCarbs(e.target.value)} className={inputClass}/></label><label><span className="mb-1 block text-xs font-semibold text-slate-600">Grasas (g)</span><input readOnly={!!(usdaFood || foodReference)} type="number" min="0" value={foodFat} onChange={e=>setFoodFat(e.target.value)} className={inputClass}/></label></div>
                 {foodAmount && foodUnit && <ServingPreview macros={selectedFoodMacros} cantidad={Number(foodAmount)} unidad={foodUnit} />}
                 <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Momento</span><select value={foodMoment} onChange={(e)=>setFoodMoment(e.target.value as MomentoComida)} className={inputClass}>{moments.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}</select></label>
                 <div className="flex justify-end gap-2">
                   <button onClick={()=>setWizardType(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Atrás</button>
-                  <button onClick={()=>void handleAddFood()} disabled={!foodSearch.trim() || !Number(foodAmount) || !foodUnit || [foodProtein, foodCarbs, foodFat].some(value => value === "" || Number(value) < 0) || saving} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving?"Guardando…": editFood ? "Guardar cambios" : "Agregar"}</button>
+                  <button onClick={()=>void handleAddFood()} disabled={!foodSearch.trim() || !Number.isFinite(Number(foodAmount)) || Number(foodAmount) <= 0 || (!!usdaFood && Number(foodAmount) > 10000) || !foodUnit || [foodProtein, foodCarbs, foodFat].some(value => value === "" || !Number.isFinite(Number(value)) || Number(value) < 0) || saving} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving?"Guardando…": editFood ? "Guardar cambios" : "Agregar"}</button>
                 </div>
               </div>
             )}
@@ -533,7 +581,7 @@ function DailyNutritionSummary({ resumen, loading, error, selectedDate }: { resu
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800" style={FONT_HEADING}><Calendar size={16} className="text-teal-600" /> Resumen del día · {fmtDateLong(selectedDate)}</h3>
-          <p className="mt-1 text-xs text-slate-500">{isDisponible ? `Meta del plan vinculado al análisis predictivo · ${resumen.objetivo.fuente ?? "backend"}` : "Consumo registrado · meta del análisis predictivo aún pendiente"}</p>
+          <p className="mt-1 text-xs text-slate-500">{isDisponible ? `Meta del plan vinculado al análisis predictivo · ${resumen.objetivo.fuente ?? "sistema"}` : "Consumo registrado · meta del análisis predictivo aún pendiente"}</p>
         </div>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isDisponible ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-amber-50 text-amber-700 border border-amber-100"}`}>{isDisponible ? "Meta predictiva disponible" : "Meta predictiva pendiente"}</span>
       </div>
@@ -574,7 +622,7 @@ function MacroProgress({ label, consumido, objetivo, unidad, color }: { label: s
 }
 
 function FoodNutritionInfo({ food, macros }: { food: AlimentoCatalogoResponse; macros: ReturnType<typeof getCatalogMacros> }) {
-  if (!macros) return <div className="rounded-xl border border-dashed bg-slate-50 p-3"><p className="text-xs text-slate-500">Información nutricional de referencia no disponible para este alimento.</p><p className="text-xs text-slate-400">El backend no expuso kcal/proteína/carbos/grasas para porción de referencia.</p></div>;
+  if (!macros) return <div className="rounded-xl border border-dashed bg-slate-50 p-3"><p className="text-xs text-slate-500">Información nutricional de referencia no disponible para este alimento.</p><p className="text-xs text-slate-400">No se informó la información nutricional de referencia para la porción indicada.</p></div>;
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
       <p className="text-xs font-semibold text-slate-700">{food.nombre} <span className="font-normal text-slate-500">· {food.categoria} {food.porcionReferencia ? `· ${food.porcionReferencia}` : "· Por 100 g"}</span></p>
@@ -593,7 +641,7 @@ function FoodNutritionInfo({ food, macros }: { food: AlimentoCatalogoResponse; m
 
 function ServingPreview({ macros, cantidad, unidad }: { macros: ReturnType<typeof getCatalogMacros>; cantidad: number; unidad: string }) {
   const preview = previewProporcional(macros, cantidad, unidad);
-  if (!preview) return <p className="rounded-xl border border-dashed bg-slate-50 p-3 text-xs text-slate-500">El backend calculará los nutrientes al guardar. No se muestra una estimación porque la unidad no coincide con la referencia del catálogo.</p>;
+  if (!preview) return <p className="rounded-xl border border-dashed bg-slate-50 p-3 text-xs text-slate-500">El sistema calculará los nutrientes al guardar. No se muestra una estimación porque la unidad no coincide con la referencia del catálogo.</p>;
   return (
     <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
       <p className="text-xs font-semibold text-emerald-800">Esta porción aporta <span className="font-normal text-emerald-700">({cantidad} {unidad} · estimación; oficial tras guardar)</span></p>
@@ -656,7 +704,7 @@ function FoodDetailContent({ food, catalog }: { food: RegistroAlimentoResponse; 
           {macros.fibra != null && <p><span className="font-semibold">Fibra:</span> {macros.fibra} g</p>}
         </div>
       ) : <p className="text-xs text-slate-500">Sin desglose macro persistido para este registro.</p>}
-      <p className="text-xs text-slate-400">Fuente: {cat ? `${cat.nombre} · ${cat.categoria}` : "catálogo"} · backend autoridad.</p>
+      <p className="text-xs text-slate-400">Fuente: {cat ? `${cat.nombre} · ${cat.categoria}` : "catálogo"} · valor oficial del sistema.</p>
     </div>
   );
 }
@@ -665,7 +713,7 @@ function WaterQuickAdd({ waterAmount, setWaterAmount, onSave, onBack, saving }: 
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-500">Flujo simplificado — solo cantidad. No se solicitan proteínas, carbohidratos ni calorías.</p>
-      <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Cantidad (ml)</span><input type="number" value={waterAmount} onChange={(e)=>setWaterAmount(e.target.value)} placeholder="500" className={inputClass} aria-label="Cantidad agua ml" /></label>
+      <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Cantidad (ml)</span><input type="number" inputMode="numeric" min="1" step="1" value={waterAmount} onChange={(e)=>setWaterAmount(e.target.value.replace(/\D/g, ""))} onKeyDown={(e)=>{ if (["e","E","+","-","."," ",""].includes(e.key)) e.preventDefault(); }} placeholder="500" className={inputClass} aria-label="Cantidad agua ml" /></label>
       <div className="grid grid-cols-3 gap-2">
         {[250,500,750].map(ml=> <button key={ml} onClick={()=>setWaterAmount(String(ml))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">{ml} ml</button>)}
         <button onClick={()=>setWaterAmount("1000")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">1000 ml</button>
