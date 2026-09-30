@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Brain, Check, Eye, EyeOff } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Brain, Check, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { FONT_HEADING } from "../../types";
 import { ObjetivoOnboardingResult } from "../../components/shared/ObjetivoNutricionalCard";
@@ -9,12 +9,14 @@ import { toast } from "../../services/notifications";
 import { ApiError } from "../../services/api";
 import type { FieldErrors } from "../../services/validation-errors";
 import { REGISTER_FIELDS, validateRegistration } from "./register-validation";
+import { saludService, type CatalogoPerfilSalud, type EstadoPatologia, type EstadoReproductivo, type PatronAlimentario } from "../../services/salud.service";
 
 /**
- * FASE UX-2 — Onboarding en 3 pasos
+ * Onboarding en 4 pasos
  * Paso 1: Cuenta (nombre, correo, contraseña, confirmación)
  * Paso 2: Información personal (edad, peso, altura, objetivo físico — UX sin técnico)
  * Paso 3: Actividad física básica para personalizar la meta diaria
+ * Paso 4: Salud y seguridad para orientar suplementos sin diagnosticar
  * No se pregunta objetivoEnergetico. No se calcula déficit/superávit.
  */
 
@@ -48,6 +50,8 @@ const LEGACY_MAP: Record<string, string> = {
 
 export default function RegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editHealth = searchParams.get("salud") === "1";
   const auth = useAuth();
   const [step, setStep] = useState(1);
   const [nombre, setNombre] = useState("");
@@ -71,6 +75,18 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [accountCreated, setAccountCreated] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [healthCatalog, setHealthCatalog] = useState<CatalogoPerfilSalud | null>(null);
+  const [healthCatalogLoading, setHealthCatalogLoading] = useState(false);
+  const [healthProfileLoaded, setHealthProfileLoaded] = useState(false);
+  const [ningunaPatologia, setNingunaPatologia] = useState<boolean | null>(null);
+  const [patologias, setPatologias] = useState<Record<string, Exclude<EstadoPatologia, "NO_DECLARADA">>>({});
+  const [patronAlimentario, setPatronAlimentario] = useState<PatronAlimentario | "">("");
+  const [estadoReproductivo, setEstadoReproductivo] = useState<EstadoReproductivo | "">("");
+  const [sensibilidadCafeina, setSensibilidadCafeina] = useState<boolean | null>(null);
+  const [medicamentos, setMedicamentos] = useState("");
+  const [alergias, setAlergias] = useState("");
+  const [deficiencias, setDeficiencias] = useState<string[]>([]);
+  const [declaracionSalud, setDeclaracionSalud] = useState(false);
   const [serverErrors, setServerErrors] = useState<FieldErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [attemptedSteps, setAttemptedSteps] = useState<number[]>([]);
@@ -102,13 +118,44 @@ export default function RegisterPage() {
   useEffect(() => {
     if (!auth.isAuthenticated || auth.role !== "CLIENTE") return;
     if (auth.profileComplete) {
+      if (editHealth || (auth.user?.perfilSaludRequerido && !auth.user.perfilSaludCompleto)) {
+        setAccountCreated(true);
+        setStep(4);
+        return;
+      }
       navigate("/client/home", { replace: true });
       return;
     }
     setAccountCreated(true);
     // si ya tiene cuenta pero perfil incompleto, respetar donde estaba
     setStep((s) => (s === 1 ? 2 : s));
-  }, [auth.isAuthenticated, auth.profileComplete, auth.role, navigate]);
+  }, [auth.isAuthenticated, auth.profileComplete, auth.role, auth.user?.perfilSaludCompleto, auth.user?.perfilSaludRequerido, editHealth, navigate]);
+
+  useEffect(() => {
+    if (step !== 4 || healthCatalog || healthCatalogLoading) return;
+    setHealthCatalogLoading(true);
+    saludService.catalog()
+      .then(setHealthCatalog)
+      .catch(cause => toast.error(cause instanceof Error ? cause.message : "No se pudo cargar el cuestionario de salud."))
+      .finally(() => setHealthCatalogLoading(false));
+  }, [healthCatalog, healthCatalogLoading, step]);
+
+  useEffect(() => {
+    if (step !== 4 || !auth.user?.clienteId || healthProfileLoaded) return;
+    setHealthProfileLoaded(true);
+    saludService.getProfile(auth.user.clienteId).then(profile => {
+      if (!profile.completo) return;
+      setNingunaPatologia(profile.ningunaPatologiaConocida);
+      setPatronAlimentario(profile.patronAlimentario);
+      setEstadoReproductivo(profile.estadoReproductivo);
+      setSensibilidadCafeina(profile.sensibilidadCafeina);
+      setMedicamentos(profile.medicamentos.join(", "));
+      setAlergias(profile.alergias.join(", "));
+      setDeficiencias(profile.deficiencias.filter(item => item.confirmada).map(item => item.nombre));
+      setPatologias(Object.fromEntries(profile.patologias.filter(item => item.estado !== "NO_DECLARADA").map(item => [item.codigo, item.estado as Exclude<EstadoPatologia, "NO_DECLARADA">])));
+      setDeclaracionSalud(profile.declaracionAceptada);
+    }).catch(() => undefined);
+  }, [auth.user?.clienteId, healthProfileLoaded, step]);
 
   const continueToProfile = async () => {
     if (accountCreated) {
@@ -156,10 +203,43 @@ export default function RegisterPage() {
         tipoEntrenamiento: realizaActividad ? tipoEntrenamiento : null,
         duracionPromedioSesionMinutos: realizaActividad ? Number(duracionSesion) : null,
       });
-      setCompleted(true);
+      setStep(4);
     } catch (cause) {
       captureServerErrors(cause);
       toast.error(cause instanceof Error ? cause.message : "No se pudo completar el perfil.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const values = (text: string) => text.split(",").map(value => value.trim()).filter(Boolean);
+
+  const handleHealthFinalize = async () => {
+    setError("");
+    if (ningunaPatologia === null || !patronAlimentario || !estadoReproductivo || sensibilidadCafeina === null || !declaracionSalud) {
+      setError("Completa las preguntas obligatorias de salud y confirma la declaración.");
+      return;
+    }
+    if (!ningunaPatologia && Object.keys(patologias).length === 0) {
+      setError("Selecciona al menos una condición o indica que no conoces ninguna.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await auth.completeHealthProfile({
+        ningunaPatologiaConocida: ningunaPatologia,
+        patronAlimentario,
+        estadoReproductivo,
+        sensibilidadCafeina,
+        declaracionAceptada: declaracionSalud,
+        patologias: Object.entries(patologias).map(([codigo, estado]) => ({ codigo, estado })),
+        medicamentos: values(medicamentos),
+        alergias: values(alergias),
+        deficiencias: deficiencias.map(nombre => ({ nombre, confirmada: true })),
+      });
+      setCompleted(true);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "No se pudo guardar el perfil de salud.");
     } finally {
       setLoading(false);
     }
@@ -189,25 +269,25 @@ export default function RegisterPage() {
           <div><div className="font-semibold text-slate-900" style={FONT_HEADING}>NutriPredict</div><div className="text-[11px] text-slate-500">Registro nutricional</div></div>
         </div>
 
-        {/* Progress 1-2-3 */}
+        {/* Progress 1-2-3-4 */}
         <div className="mb-6 flex items-center gap-2">
-          {[1, 2, 3].map((n) => (
+          {[1, 2, 3, 4].map((n) => (
             <div key={n} className="flex flex-1 items-center gap-2">
               <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${step >= n ? "bg-[#173c36] text-white" : "bg-slate-200 text-slate-500"}`}>{n}</div>
               <div className="hidden sm:block text-xs font-medium leading-none">
-                <div className={step >= n ? "text-slate-900" : "text-slate-400"}>{n === 1 ? "Cuenta" : n === 2 ? "Perfil" : "Actividad"}</div>
+                <div className={step >= n ? "text-slate-900" : "text-slate-400"}>{n === 1 ? "Cuenta" : n === 2 ? "Perfil" : n === 3 ? "Actividad" : "Salud"}</div>
               </div>
-              {n < 3 && <div className={`h-0.5 flex-1 rounded ${step > n ? "bg-[#397065]" : "bg-slate-200"}`} />}
+              {n < 4 && <div className={`h-0.5 flex-1 rounded ${step > n ? "bg-[#397065]" : "bg-slate-200"}`} />}
             </div>
           ))}
         </div>
 
         <div className="rounded-2xl border border-[#dbe7e1] bg-white p-6 shadow-[0_12px_30px_rgba(23,60,54,.08)] sm:p-8">
           <h2 className="mb-1 text-2xl font-semibold text-slate-900" style={FONT_HEADING}>
-            {step === 1 ? "Crear cuenta" : step === 2 ? "Información personal" : "Actividad física"}
+            {step === 1 ? "Crear cuenta" : step === 2 ? "Información personal" : step === 3 ? "Actividad física" : "Salud y seguridad"}
           </h2>
           <p className="text-slate-500 text-sm mb-6">
-            {step === 1 ? "Paso 1 de 3 · Cuenta" : step === 2 ? "Paso 2 de 3 · Datos personales" : "Paso 3 de 3 · Actividad física"}
+            {step === 1 ? "Paso 1 de 4 · Cuenta" : step === 2 ? "Paso 2 de 4 · Datos personales" : step === 3 ? "Paso 3 de 4 · Actividad física" : "Paso 4 de 4 · Información para orientar suplementos"}
           </p>
           {error && <div role="alert" className="mb-4 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-700">{error}</div>}
 
@@ -426,6 +506,88 @@ export default function RegisterPage() {
                 </button>
               </div>
               <p className="text-[11px] leading-4 text-slate-400">No se solicita déficit/superávit. La estrategia nutricional la deriva el sistema. No se calcula TMB/TDEE aquí.</p>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-5">
+              <div className="flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+                <ShieldCheck className="mt-0.5 shrink-0" size={20} />
+                <p className="leading-5">Esta información se usa para evitar orientaciones inseguras. NutriPredict no diagnostica enfermedades ni reemplaza una evaluación profesional.</p>
+              </div>
+
+              {healthCatalogLoading && <p className="text-sm text-slate-500">Cargando cuestionario...</p>}
+              {healthCatalog && <>
+                <section>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">¿Conoces alguna de estas condiciones?</p>
+                  <div className="mt-2 grid gap-2">
+                    <button type="button" onClick={() => { setNingunaPatologia(true); setPatologias({}); }} className={`rounded-xl border px-3 py-2.5 text-left text-sm ${ningunaPatologia === true ? "border-[#397065] bg-emerald-50 text-[#173c36]" : "border-slate-200 text-slate-600"}`}>
+                      No conozco ninguna de estas patologías
+                    </button>
+                    {healthCatalog.patologias.map(patologia => {
+                      const estado = patologias[patologia.codigo];
+                      return <button key={patologia.codigo} type="button" onClick={() => {
+                        setNingunaPatologia(false);
+                        setPatologias(current => {
+                          const next = { ...current };
+                          if (!estado) next[patologia.codigo] = "CONFIRMADA";
+                          else if (estado === "CONFIRMADA") next[patologia.codigo] = "SOSPECHADA";
+                          else delete next[patologia.codigo];
+                          return next;
+                        });
+                      }} className={`rounded-xl border px-3 py-2.5 text-left ${estado ? "border-[#397065] bg-emerald-50" : "border-slate-200"}`}>
+                        <span className="block text-sm font-medium text-slate-800">{patologia.nombre}</span>
+                        <span className="mt-0.5 block text-xs text-slate-500">{estado === "CONFIRMADA" ? "Confirmada por un profesional · pulsa para cambiar" : estado === "SOSPECHADA" ? "En evaluación o sospechada · pulsa para quitar" : patologia.descripcion}</span>
+                      </button>;
+                    })}
+                  </div>
+                </section>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="patron-alimentario" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Patrón alimentario</label>
+                    <select id="patron-alimentario" value={patronAlimentario} onChange={e => setPatronAlimentario(e.target.value as PatronAlimentario)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm">
+                      <option value="">Seleccionar</option>
+                      <option value="OMNIVORO">Omnívoro</option><option value="VEGETARIANO">Vegetariano</option><option value="VEGANO">Vegano</option><option value="OTRO">Otro</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="estado-reproductivo" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Embarazo o lactancia</label>
+                    <select id="estado-reproductivo" value={estadoReproductivo} onChange={e => setEstadoReproductivo(e.target.value as EstadoReproductivo)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm">
+                      <option value="">Seleccionar</option><option value="NO_APLICA">No aplica</option><option value="NINGUNO">Ninguno</option><option value="EMBARAZO">Embarazo</option><option value="LACTANCIA">Lactancia</option>
+                    </select>
+                  </div>
+                </div>
+
+                <section>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">¿Tienes sensibilidad a la cafeína?</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {[{ value: true, label: "Sí" }, { value: false, label: "No" }].map(option => <button key={String(option.value)} type="button" onClick={() => setSensibilidadCafeina(option.value)} className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${sensibilidadCafeina === option.value ? "border-[#397065] bg-emerald-50 text-[#173c36]" : "border-slate-200 text-slate-600"}`}>{option.label}</button>)}
+                  </div>
+                </section>
+
+                {[{ id: "medicamentos", label: "Medicamentos actuales", value: medicamentos, set: setMedicamentos, placeholder: "Ej.: levotiroxina, metformina" }, { id: "alergias", label: "Alergias conocidas", value: alergias, set: setAlergias, placeholder: "Ej.: leche, soya, maní" }].map(field => <div key={field.id}>
+                  <label htmlFor={field.id} className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">{field.label} <span className="font-normal normal-case text-slate-400">(opcional, separados por coma)</span></label>
+                  <input id={field.id} maxLength={600} value={field.value} onChange={e => field.set(e.target.value)} placeholder={field.placeholder} className="w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm" />
+                </div>)}
+
+                <section>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Deficiencias confirmadas por un profesional <span className="font-normal normal-case text-slate-400">(opcional)</span></p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {healthCatalog.deficienciasSugeridas.map(nombre => <button key={nombre} type="button" onClick={() => setDeficiencias(current => current.includes(nombre) ? current.filter(item => item !== nombre) : [...current, nombre])} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${deficiencias.includes(nombre) ? "border-[#397065] bg-emerald-50 text-[#173c36]" : "border-slate-200 text-slate-600"}`}>{nombre}</button>)}
+                  </div>
+                </section>
+
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                  <input type="checkbox" checked={declaracionSalud} onChange={e => setDeclaracionSalud(e.target.checked)} className="mt-1" />
+                  <span>Confirmo que estos datos son correctos según mi conocimiento y entiendo que la orientación no constituye un diagnóstico ni una prescripción.</span>
+                </label>
+
+                <div className="flex gap-2.5">
+                  <button type="button" onClick={() => setStep(3)} disabled={loading} className="flex-1 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Atrás</button>
+                  <button type="button" onClick={handleHealthFinalize} disabled={loading} className="flex-1 rounded-xl bg-[#173c36] py-3 text-sm font-semibold text-white disabled:opacity-60">{loading ? "Guardando..." : "Finalizar registro"}</button>
+                </div>
+              </>}
             </div>
           )}
 

@@ -51,6 +51,8 @@ export interface ClienteResponse {
   tipoEntrenamiento: TipoEntrenamiento | null;
   duracionPromedioSesionMinutos: number | null;
   objetivoEnergetico: "DEFICIT" | "MANTENIMIENTO" | "SUPERAVIT" | null;
+  perfilSaludCompleto: boolean;
+  perfilSaludRequerido: boolean;
   estado: string;
 }
 

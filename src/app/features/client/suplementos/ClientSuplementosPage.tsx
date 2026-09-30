@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { COMPONENT_FIELDS, numericError, optionalComponent } from "./supplement-validation";
-import { Activity, AlertCircle, Clock, Edit2, Pill, Plus, Utensils } from "lucide-react";
+import { Activity, AlertCircle, Ban, Clock, Edit2, Pill, Plus, ShieldCheck, Sparkles, Utensils } from "lucide-react";
 import { OperationNotice } from "../../../components/shared/OperationNotice";
 import { AppModal, Badge, Card, KPICard, SectionHeader, StateBadge } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
@@ -8,6 +8,7 @@ import { FONT_HEADING } from "../../../types";
 import { suplementosService, type SuplementoActualizacionRequest, type SuplementoClienteResponse } from "../../../services/suplementos.service";
 import { unidadesService, type UnidadMedidaResponse } from "../../../services/unidades.service";
 import { useNavigate } from "react-router-dom";
+import { saludService, type OrientacionSuplementoItem, type OrientacionSuplementosResponse } from "../../../services/salud.service";
 
 type SupplementForm = { suplementoId: string; nombre: string; cantidadPorToma: string; unidadCodigo: string; proteinaGPorToma: string; carbohidratosGPorToma: string; grasasGPorToma: string; creatinaGPorToma: string; cafeinaMgPorToma: string; sodioMgPorToma: string; tiempoUso: string; activo: "true" | "false"; fechaInicio: string; fechaFin: string };
 const localDate = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
@@ -29,6 +30,7 @@ export default function ClientSuplementosPage() {
   const [saving, setSaving] = useState(false);
   const saveInFlight = useRef(false);
   const [error, setError] = useState("");
+  const [orientation, setOrientation] = useState<OrientacionSuplementosResponse | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.clienteId) { setError("No se encontró el perfil de cliente."); setLoading(false); return; }
@@ -37,6 +39,8 @@ export default function ClientSuplementosPage() {
       const [assigned, unitItems] = await Promise.all([suplementosService.listByCliente(user.clienteId), unidadesService.list()]);
       setRecords(assigned);
       setUnits(unitItems);
+      try { setOrientation(await saludService.orientation(user.clienteId)); }
+      catch { setOrientation(null); }
     }
     catch (cause) { setError(errorMessage(cause)); } finally { setLoading(false); }
   }, [user?.clienteId]);
@@ -67,6 +71,22 @@ export default function ClientSuplementosPage() {
   return <div>
     <SectionHeader title="Mis suplementos" subtitle="Catálogo personal — qué productos utilizas habitualmente. El consumo diario se registra en Mi alimentación." action={<button onClick={() => setOpen(true)} className="flex items-center gap-2 rounded-xl bg-[#173c36] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#225148]"><Plus size={14} /> Añadir suplemento</button>} />
     <OperationNotice message={error}/>
+
+    <Card className="mb-4 overflow-hidden border-emerald-100 p-0">
+      <div className="flex items-start gap-3 border-b border-emerald-100 bg-emerald-50/70 p-4">
+        <ShieldCheck className="mt-0.5 shrink-0 text-emerald-700" size={20} />
+        <div><h2 className="text-sm font-semibold text-slate-900">Orientación inteligente de suplementación</h2><p className="mt-1 text-xs leading-5 text-slate-600">Separa posibles apoyos, componentes sin necesidad demostrada y opciones que debes evitar o revisar. No diagnostica ni prescribe.</p></div>
+      </div>
+      {!orientation ? <p className="p-4 text-xs text-slate-500">No se pudo consultar la orientación en este momento.</p> : !orientation.disponible ? <div className="p-4"><p className="text-sm font-medium text-slate-800">Completa tu perfil de salud</p><p className="mt-1 text-xs text-slate-500">{orientation.motivoNoDisponible}</p><button onClick={() => navigate("/register?salud=1")} className="mt-3 rounded-lg bg-[#173c36] px-3 py-2 text-xs font-semibold text-white">Completar salud y seguridad</button></div> : <div className="space-y-4 p-4">
+        {orientation.alertasSalud.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-900">Revisión de seguridad</p>{orientation.alertasSalud.map(alerta => <p key={alerta} className="mt-1 text-xs leading-5 text-amber-800">• {alerta}</p>)}</div>}
+        <div className="grid gap-3 lg:grid-cols-3">
+          <OrientationGroup icon={<Sparkles size={16}/>} title="Podrían apoyar tu objetivo" empty="No hay candidatos con evidencia suficiente." items={orientation.posiblesApoyos} tone="emerald" />
+          <OrientationGroup icon={<Pill size={16}/>} title="No parecen necesarios" empty="No hay resultados en esta categoría." items={orientation.noNecesarios} tone="slate" />
+          <OrientationGroup icon={<Ban size={16}/>} title="Evitar o revisar" empty="No se detectaron bloqueos específicos." items={orientation.evitarORevisar} tone="rose" />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[11px] text-slate-400"><span>Reglas {orientation.versionReglas} · {orientation.explicacionIaDisponible ? "Explicación personalizada por IA" : "Explicación segura del backend"}</span><button onClick={() => navigate("/register?salud=1")} className="font-semibold text-teal-700 hover:underline">Actualizar datos de salud</button></div>
+      </div>}
+    </Card>
 
     {/* Explicación conexión — §12 */}
     <Card className="mb-4 border-indigo-100 bg-indigo-50/40 p-4">
@@ -127,3 +147,8 @@ export default function ClientSuplementosPage() {
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block"><span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-600">{label}</span>{children}</label>; }
+
+function OrientationGroup({ icon, title, empty, items, tone }: { icon: ReactNode; title: string; empty: string; items: OrientacionSuplementoItem[]; tone: "emerald" | "slate" | "rose" }) {
+  const tones = { emerald: "border-emerald-100 bg-emerald-50/40 text-emerald-800", slate: "border-slate-200 bg-slate-50 text-slate-700", rose: "border-rose-100 bg-rose-50/50 text-rose-800" };
+  return <section className={`rounded-xl border p-3 ${tones[tone]}`}><div className="flex items-center gap-2 text-xs font-semibold">{icon}{title}</div>{items.length === 0 ? <p className="mt-3 text-xs opacity-70">{empty}</p> : <div className="mt-3 space-y-2">{items.map(item => <article key={item.componente} className="rounded-lg border border-white/80 bg-white/80 p-3"><p className="text-xs font-semibold text-slate-900">{item.nombre}</p><p className="mt-1 text-[11px] font-medium text-slate-600">{item.motivo}</p><p className="mt-1 text-[11px] leading-4 text-slate-500">{item.explicacion}</p><a href={item.fuenteUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[10px] font-medium text-teal-700 hover:underline">Fuente: {item.fuente}</a></article>)}</div>}</section>;
+}

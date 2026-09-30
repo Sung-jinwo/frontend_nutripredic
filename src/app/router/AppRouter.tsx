@@ -27,7 +27,7 @@ function ProtectedRoute({ role }: { role: "CLIENTE" | "ADMIN" }) {
   if (auth.isLoading) return <div className="min-h-screen bg-[#f0f4fb] flex items-center justify-center text-sm text-slate-500">Cargando sesión...</div>;
   if (!auth.isAuthenticated) return <Navigate to="/login" replace />;
   if (auth.role !== role) return <Navigate to={auth.role === "ADMIN" ? "/admin/dashboard" : "/client/home"} replace />;
-  if (role === "CLIENTE" && !auth.profileComplete && location.pathname !== "/client/profile") return <Navigate to="/client/profile" replace />;
+  if (role === "CLIENTE" && (!auth.profileComplete || (auth.user?.perfilSaludRequerido && !auth.user?.perfilSaludCompleto))) return <Navigate to="/register" replace />;
   return <AppLayout />;
 }
 

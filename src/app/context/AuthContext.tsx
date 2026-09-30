@@ -6,6 +6,7 @@ import { SESSION_EXPIRED_EVENT, tokenStorage } from "../services/api";
 import { clientService, type ClienteResponse, type UpdateClientRequest } from "../services/client.service";
 import { planDiarioService } from "../services/plan-diario.service";
 import { setNotificationUser } from "../services/notifications";
+import { saludService, type PerfilSaludRequest } from "../services/salud.service";
 
 function mergeClientProfile(currentUser: User, cliente: ClienteResponse): User {
   return {
@@ -25,6 +26,8 @@ function mergeClientProfile(currentUser: User, cliente: ClienteResponse): User {
     tipoEntrenamiento: cliente.tipoEntrenamiento,
     duracionPromedioSesionMinutos: cliente.duracionPromedioSesionMinutos,
     objetivoEnergetico: cliente.objetivoEnergetico,
+    perfilSaludCompleto: cliente.perfilSaludCompleto,
+    perfilSaludRequerido: cliente.perfilSaludRequerido,
   };
 }
 
@@ -44,6 +47,7 @@ interface AuthContextType {
   login: (data: LoginRequest) => Promise<void>;
   register: (data: RegisterRequest) => Promise<void>;
   completeProfile: (data: UpdateClientRequest) => Promise<void>;
+  completeHealthProfile: (data: PerfilSaludRequest) => Promise<void>;
   updateProfile: (data: UpdateClientRequest) => Promise<void>;
   refreshProfile: () => Promise<void>;
   logout: () => Promise<void>;
@@ -80,7 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (redirect) navigate(
       authenticatedUser.rol === "ADMIN"
         ? "/admin/dashboard"
-        : isClientProfileComplete(authenticatedUser) ? "/client/home" : "/client/profile",
+        : isClientProfileComplete(authenticatedUser) &&
+            !(authenticatedUser.perfilSaludRequerido && !authenticatedUser.perfilSaludCompleto)
+          ? "/client/home"
+          : "/register",
       { replace: true },
     );
   }, [navigate]);
@@ -115,6 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     const currentUser = await authService.me();
     setUser(mergeClientProfile(currentUser, updatedClient));
+  }, [user]);
+
+  const completeHealthProfile = useCallback(async (data: PerfilSaludRequest) => {
+    if (!user?.clienteId) throw new Error("No se encontró el perfil de cliente.");
+    await saludService.updateProfile(user.clienteId, data);
+    const currentUser = await hydrateClientProfile(await authService.me());
+    setUser(currentUser);
   }, [user]);
 
   const updateProfile = useCallback(async (data: UpdateClientRequest) => {
@@ -181,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       register,
       completeProfile,
+      completeHealthProfile,
       updateProfile,
       refreshProfile,
       logout,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  AlertTriangle, Apple, Beef, CheckCircle2, Droplets, Gauge, Lightbulb,
-  RefreshCw, Salad, Sparkles, Wheat,
+  AlertTriangle, Apple, Ban, Beef, CheckCircle2, Droplets, Gauge, Lightbulb,
+  Pill, RefreshCw, Salad, ShieldCheck, Sparkles, Wheat,
 } from "lucide-react";
 import { Card, ErrorState, LoadingState, SectionHeader } from "../../../components/shared";
 import { useAuth } from "../../../context/AuthContext";
@@ -13,6 +13,7 @@ import {
 import type { ClasificacionPredictiva } from "../../../services/analisis-predictivo.service";
 import { resumenDiarioService, type ResumenDiarioResponse } from "../../../services/resumen-diario.service";
 import { toast } from "../../../services/notifications";
+import { saludService, type OrientacionSuplementosResponse } from "../../../services/salud.service";
 
 const labels: Record<ClasificacionPredictiva, string> = {
   ADECUADO: "Adecuado",
@@ -35,15 +36,17 @@ export default function ClientRecomendacionesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [hoy, setHoy] = useState<ResumenDiarioResponse | null>(null);
+  const [suplementos, setSuplementos] = useState<OrientacionSuplementosResponse | null>(null);
 
   const load = useCallback(async (notificar = false) => {
     if (!user?.clienteId) return;
     setLoading(true);
     setError("");
     try {
-      const [orientacion, resumen] = await Promise.all([orientacionService.obtener(user.clienteId), resumenDiarioService.get(user.clienteId, new Date().toLocaleDateString("sv-SE", { timeZone: "America/Lima" }))]);
+      const [orientacion, resumen, orientacionSuplementos] = await Promise.all([orientacionService.obtener(user.clienteId), resumenDiarioService.get(user.clienteId, new Date().toLocaleDateString("sv-SE", { timeZone: "America/Lima" })), saludService.orientation(user.clienteId)]);
       setData(orientacion);
       setHoy(resumen);
+      setSuplementos(orientacionSuplementos);
       if (notificar) toast.success("Orientación y consumo actualizados.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo cargar la orientación.");
@@ -90,10 +93,22 @@ export default function ClientRecomendacionesPage() {
           { nombre: "Agua y bebidas", valor: hoy.agua.consumidoMl, meta: hoy.agua.objetivoMl, unidad: "ml" },
         ].map(item => <div key={item.nombre} className="rounded-xl bg-teal-50 p-3"><p className="text-xs font-semibold text-teal-900">{item.nombre}</p><p className="mt-2 text-sm font-bold">{item.valor ?? "Sin registro"} / {item.meta ?? "Sin meta"} {item.unidad}</p>{item.valor != null && item.meta != null && <p className="mt-1 text-xs text-teal-800">Diferencia respecto a la meta: {(item.valor - item.meta).toLocaleString("es-PE", { maximumFractionDigits: 1 })} {item.unidad}</p>}</div>)}</div>
       </Card>}
+      <SupplementGuidance data={suplementos} />
       <EducationalSection />
       <p className="text-xs text-slate-400">La orientación utiliza registros guardados y no reemplaza la evaluación de un profesional de salud.</p>
     </div>}
   </div>;
+}
+
+function SupplementGuidance({ data }: { data: OrientacionSuplementosResponse | null }) {
+  if (!data) return null;
+  if (!data.disponible) return <Card className="border-slate-200 bg-slate-50 p-5"><div className="flex gap-3"><ShieldCheck className="shrink-0 text-slate-500" size={20}/><div><h2 className="font-semibold text-slate-900">Orientación de suplementos pendiente</h2><p className="mt-1 text-xs leading-5 text-slate-600">{data.motivoNoDisponible}</p></div></div></Card>;
+  const groups = [
+    { title: "Podrían apoyar tu objetivo", items: data.posiblesApoyos, icon: Sparkles, tone: "border-emerald-100 bg-emerald-50/40 text-emerald-700" },
+    { title: "No parecen necesarios", items: data.noNecesarios, icon: Pill, tone: "border-slate-200 bg-slate-50 text-slate-600" },
+    { title: "Evitar o revisar", items: data.evitarORevisar, icon: Ban, tone: "border-rose-100 bg-rose-50/50 text-rose-700" },
+  ];
+  return <section><div className="mb-3 flex items-center gap-2"><ShieldCheck size={18} className="text-teal-700"/><div><h2 className="text-base font-semibold text-slate-900">Orientación inteligente de suplementos</h2><p className="text-xs text-slate-500">Se basa en el perfil de salud y las reglas {data.versionReglas}; no modifica la evaluación predictiva diaria.</p></div></div>{data.alertasSalud.length > 0 && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">{data.alertasSalud.map(item => <p key={item} className="text-xs leading-5 text-amber-800">• {item}</p>)}</div>}<div className="grid gap-3 lg:grid-cols-3">{groups.map(({ title, items, icon: Icon, tone }) => <Card key={title} className={`p-4 ${tone}`}><div className="flex items-center gap-2"><Icon size={16}/><h3 className="text-sm font-semibold">{title}</h3></div>{items.length === 0 ? <p className="mt-3 text-xs opacity-70">Sin resultados en esta categoría.</p> : <div className="mt-3 space-y-3">{items.map(item => <article key={item.componente} className="rounded-lg bg-white/80 p-3"><p className="text-xs font-semibold text-slate-900">{item.nombre}</p><p className="mt-1 text-[11px] font-medium text-slate-600">{item.motivo}</p><p className="mt-1 text-[11px] leading-4 text-slate-500">{item.explicacion}</p><a href={item.fuenteUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[10px] font-semibold text-teal-700 hover:underline">{item.fuente}</a></article>)}</div>}</Card>)}</div></section>;
 }
 
 function EvaluationCard({ data }: { data: OrientacionResponse }) {
