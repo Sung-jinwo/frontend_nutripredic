@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "../../../services/notifications";
-import { Check, Scale, TrendingDown, TrendingUp } from "lucide-react";
+import { Check, Scale, ShieldCheck, TrendingDown, TrendingUp } from "lucide-react";
 import { AppModal, Badge, SectionHeader, Card, OperationNotice } from "../../../components/shared";
 import { ObjetivoNutricionalCard } from "../../../components/shared/ObjetivoNutricionalCard";
 import { FONT_HEADING, FONT_MONO } from "../../../types";
@@ -8,11 +9,26 @@ import { useAuth } from "../../../context/AuthContext";
 import { tipoObjetivoDesdeUx, type TipoEntrenamiento } from "../../../services/client.service";
 import { ApiError } from "../../../services/api";
 import { pesoSemanalService, type EstadoPesoSemanal, type RegistroPeso } from "../../../services/peso-semanal.service";
+import { saludService, type PerfilSaludResponse } from "../../../services/salud.service";
 import { PesoCalendar } from "./PesoCalendar";
 import { validarPesoSemanal } from "./peso-validation";
 
 const H = FONT_HEADING;
 const MONO = FONT_MONO;
+
+const PATRON_LABELS: Record<PerfilSaludResponse["patronAlimentario"], string> = {
+  OMNIVORO: "Omnívoro",
+  VEGETARIANO: "Vegetariano",
+  VEGANO: "Vegano",
+  OTRO: "Otro",
+};
+
+const ESTADO_REPRODUCTIVO_LABELS: Record<PerfilSaludResponse["estadoReproductivo"], string> = {
+  NO_APLICA: "No aplica",
+  NINGUNO: "Ninguno",
+  EMBARAZO: "Embarazo",
+  LACTANCIA: "Lactancia",
+};
 
 // UX sin tecnicismos — el técnico lo deriva el backend
 const OBJETIVOS_UX = [
@@ -54,6 +70,7 @@ type ProfileForm = {
 };
 
 export default function ClientProfilePage() {
+  const navigate = useNavigate();
   const { user, updateProfile, refreshProfile, profileComplete } = useAuth();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,6 +88,9 @@ export default function ClientProfilePage() {
   const [cargaPesoFallida, setCargaPesoFallida] = useState(false);
   const [historialPesoDisponible, setHistorialPesoDisponible] = useState(false);
   const [detalleCargaPeso, setDetalleCargaPeso] = useState("");
+  const [perfilSalud, setPerfilSalud] = useState<PerfilSaludResponse | null>(null);
+  const [cargandoSalud, setCargandoSalud] = useState(true);
+  const [errorSalud, setErrorSalud] = useState("");
   const cargaPesoEnCurso = useRef(false);
   const pesoInvalido = nuevoPeso ? validarPesoSemanal(nuevoPeso) : "";
   const cargarPesos = async (clienteId: number) => {
@@ -129,6 +149,22 @@ export default function ClientProfilePage() {
   useEffect(() => {
     if (!user?.clienteId) return;
     void cargarPesos(user.clienteId);
+  }, [user?.clienteId]);
+
+  useEffect(() => {
+    if (!user?.clienteId) return;
+    let active = true;
+    setCargandoSalud(true);
+    setErrorSalud("");
+    saludService.getProfile(user.clienteId)
+      .then(profile => { if (active) setPerfilSalud(profile); })
+      .catch(cause => {
+        if (!active) return;
+        setPerfilSalud(null);
+        setErrorSalud(cause instanceof Error ? cause.message : "No se pudo cargar la información de salud.");
+      })
+      .finally(() => { if (active) setCargandoSalud(false); });
+    return () => { active = false; };
   }, [user?.clienteId]);
 
   const registrarPeso = async (confirmado = false) => {
@@ -251,6 +287,43 @@ export default function ClientProfilePage() {
         )}
       </Card>
     </div>
+    <Card className="mb-5 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex gap-3">
+          <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><ShieldCheck size={20}/></div>
+          <div><h4 className="text-sm font-semibold text-slate-800" style={H}>Salud y seguridad</h4><p className="mt-1 text-xs text-slate-500">Información declarada para personalizar orientaciones de forma segura.</p></div>
+        </div>
+        <button type="button" onClick={() => navigate("/register?salud=1")} className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">Editar información de salud</button>
+      </div>
+
+      {cargandoSalud && <p role="status" className="mt-5 text-sm text-slate-500">Cargando información de salud…</p>}
+      {!cargandoSalud && errorSalud && <p role="alert" className="mt-5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{errorSalud}</p>}
+      {!cargandoSalud && perfilSalud && !perfilSalud.completo && <p className="mt-5 text-sm text-slate-500">Aún no has completado tu información de salud.</p>}
+      {!cargandoSalud && perfilSalud?.completo && (
+        <div className="mt-5 space-y-5">
+          <div className="grid grid-cols-1 gap-x-10 gap-y-4 sm:grid-cols-2">
+            {[
+              ["¿Tiene una condición de salud?", perfilSalud.ningunaPatologiaConocida ? "No" : "Sí"],
+              ["Patrón alimentario", PATRON_LABELS[perfilSalud.patronAlimentario]],
+              ...((user?.sexo ?? user?.sexoBiologico) !== "MASCULINO" ? [["Embarazo o lactancia", ESTADO_REPRODUCTIVO_LABELS[perfilSalud.estadoReproductivo]]] : []),
+              ["Sensibilidad a la cafeína", perfilSalud.sensibilidadCafeina ? "Sí" : "No"],
+            ].map(([label, value]) => <div key={label} className="flex items-start justify-between gap-3 border-b border-slate-50 pb-3"><span className="text-xs font-medium text-slate-500">{label}</span><span className="text-right text-sm font-medium text-slate-800" style={MONO}>{value}</span></div>)}
+          </div>
+
+          {!perfilSalud.ningunaPatologiaConocida && (
+            <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Condiciones o patologías</p><div className="mt-2 flex flex-wrap gap-2">{perfilSalud.patologias.filter(item => item.estado !== "NO_DECLARADA").map(item => <span key={item.codigo} className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800">{item.nombre} · {item.estado === "CONFIRMADA" ? "Confirmada" : "En evaluación o sospechada"}</span>)}</div></div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            {[
+              ["Medicamentos actuales", perfilSalud.medicamentos],
+              ["Alergias conocidas", perfilSalud.alergias],
+              ["Deficiencias confirmadas", perfilSalud.deficiencias.filter(item => item.confirmada).map(item => item.nombre)],
+            ].map(([label, items]) => <div key={label as string} className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold text-slate-600">{label as string}</p><p className="mt-1 text-sm leading-5 text-slate-800">{(items as string[]).length ? (items as string[]).join(", ") : "Ninguno declarado"}</p></div>)}
+          </div>
+        </div>
+      )}
+    </Card>
     <Card className="mb-5 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex gap-3"><div className="rounded-xl bg-teal-50 p-2.5 text-teal-700"><Scale size={20}/></div><div><h4 className="text-sm font-semibold text-slate-800" style={H}>Seguimiento semanal de peso</h4><p className="mt-1 text-xs text-slate-500">Regístralo una vez por semana, con la misma balanza y en condiciones similares.</p></div></div>

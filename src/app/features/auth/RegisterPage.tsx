@@ -90,6 +90,8 @@ export default function RegisterPage() {
   const [serverErrors, setServerErrors] = useState<FieldErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [attemptedSteps, setAttemptedSteps] = useState<number[]>([]);
+  const sexoPerfil = sexo || auth.user?.sexo || auth.user?.sexoBiologico || "";
+  const mostrarEstadoReproductivo = sexoPerfil !== "MASCULINO";
   const localErrors = validateRegistration({ nombre, email, password, confirmPassword, edad,
     pesoKg: peso, alturaCm: altura, sexo, objetivoFisico: objetivo, realizaActividadFisica: realizaActividad,
     diasEntrenamientoSemana: dias, tipoActividadFisica, tipoEntrenamiento,
@@ -216,7 +218,8 @@ export default function RegisterPage() {
 
   const handleHealthFinalize = async () => {
     setError("");
-    if (ningunaPatologia === null || !patronAlimentario || !estadoReproductivo || sensibilidadCafeina === null || !declaracionSalud) {
+    const estadoReproductivoFinal: EstadoReproductivo | "" = mostrarEstadoReproductivo ? estadoReproductivo : "NO_APLICA";
+    if (ningunaPatologia === null || !patronAlimentario || !estadoReproductivoFinal || sensibilidadCafeina === null || !declaracionSalud) {
       setError("Completa las preguntas obligatorias de salud y confirma la declaración.");
       return;
     }
@@ -229,7 +232,7 @@ export default function RegisterPage() {
       await auth.completeHealthProfile({
         ningunaPatologiaConocida: ningunaPatologia,
         patronAlimentario,
-        estadoReproductivo,
+        estadoReproductivo: estadoReproductivoFinal,
         sensibilidadCafeina,
         declaracionAceptada: declaracionSalud,
         patologias: Object.entries(patologias).map(([codigo, estado]) => ({ codigo, estado })),
@@ -502,7 +505,7 @@ export default function RegisterPage() {
               <div className="flex gap-2.5 pt-1">
                 <button onClick={() => { setError(""); setStep(2); }} disabled={loading} className="flex-1 border border-slate-200 text-slate-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-slate-50">Atrás</button>
                 <button onClick={handleFinalize} disabled={loading || realizaActividad === null} className="flex-1 rounded-xl bg-[#173c36] py-2.5 text-sm font-semibold text-white hover:bg-[#225148] disabled:opacity-60">
-                  {loading ? "Guardando..." : "Finalizar y continuar"}
+                  {loading ? "Guardando..." : "Continuar"}
                 </button>
               </div>
               <p className="text-[11px] leading-4 text-slate-400">No se solicita déficit/superávit. La estrategia nutricional la deriva el sistema. No se calcula TMB/TDEE aquí.</p>
@@ -519,15 +522,33 @@ export default function RegisterPage() {
               {healthCatalogLoading && <p className="text-sm text-slate-500">Cargando cuestionario...</p>}
               {healthCatalog && <>
                 <section>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">¿Conoces alguna de estas condiciones?</p>
-                  <div className="mt-2 grid gap-2">
-                    <button type="button" onClick={() => { setNingunaPatologia(true); setPatologias({}); }} className={`rounded-xl border px-3 py-2.5 text-left text-sm ${ningunaPatologia === true ? "border-[#397065] bg-emerald-50 text-[#173c36]" : "border-slate-200 text-slate-600"}`}>
-                      No conozco ninguna de estas patologías
-                    </button>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">¿Tienes alguna condición de salud conocida?</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {[{ value: false, label: "Sí" }, { value: true, label: "No" }].map(option => (
+                      <button
+                        key={String(option.value)}
+                        type="button"
+                        onClick={() => {
+                          setNingunaPatologia(option.value);
+                          setError("");
+                          if (option.value) setPatologias({});
+                        }}
+                        className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${ningunaPatologia === option.value ? "border-[#397065] bg-emerald-50 text-[#173c36]" : "border-slate-200 text-slate-600"}`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {ningunaPatologia === false && (
+                  <section>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Selecciona la condición o patología</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Pulsa una vez para marcarla como confirmada y otra vez si está en evaluación o es sospechada.</p>
+                    <div className="mt-2 grid gap-2">
                     {healthCatalog.patologias.map(patologia => {
                       const estado = patologias[patologia.codigo];
                       return <button key={patologia.codigo} type="button" onClick={() => {
-                        setNingunaPatologia(false);
                         setPatologias(current => {
                           const next = { ...current };
                           if (!estado) next[patologia.codigo] = "CONFIRMADA";
@@ -540,10 +561,11 @@ export default function RegisterPage() {
                         <span className="mt-0.5 block text-xs text-slate-500">{estado === "CONFIRMADA" ? "Confirmada por un profesional · pulsa para cambiar" : estado === "SOSPECHADA" ? "En evaluación o sospechada · pulsa para quitar" : patologia.descripcion}</span>
                       </button>;
                     })}
-                  </div>
-                </section>
+                    </div>
+                  </section>
+                )}
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                {ningunaPatologia !== null && <><div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="patron-alimentario" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Patrón alimentario</label>
                     <select id="patron-alimentario" value={patronAlimentario} onChange={e => setPatronAlimentario(e.target.value as PatronAlimentario)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm">
@@ -551,12 +573,12 @@ export default function RegisterPage() {
                       <option value="OMNIVORO">Omnívoro</option><option value="VEGETARIANO">Vegetariano</option><option value="VEGANO">Vegano</option><option value="OTRO">Otro</option>
                     </select>
                   </div>
-                  <div>
+                  {mostrarEstadoReproductivo && <div>
                     <label htmlFor="estado-reproductivo" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Embarazo o lactancia</label>
                     <select id="estado-reproductivo" value={estadoReproductivo} onChange={e => setEstadoReproductivo(e.target.value as EstadoReproductivo)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm">
-                      <option value="">Seleccionar</option><option value="NO_APLICA">No aplica</option><option value="NINGUNO">Ninguno</option><option value="EMBARAZO">Embarazo</option><option value="LACTANCIA">Lactancia</option>
+                      <option value="">Seleccionar</option><option value="NINGUNO">Ninguno</option><option value="EMBARAZO">Embarazo</option><option value="LACTANCIA">Lactancia</option>
                     </select>
-                  </div>
+                  </div>}
                 </div>
 
                 <section>
@@ -587,6 +609,7 @@ export default function RegisterPage() {
                   <button type="button" onClick={() => setStep(3)} disabled={loading} className="flex-1 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Atrás</button>
                   <button type="button" onClick={handleHealthFinalize} disabled={loading} className="flex-1 rounded-xl bg-[#173c36] py-3 text-sm font-semibold text-white disabled:opacity-60">{loading ? "Guardando..." : "Finalizar registro"}</button>
                 </div>
+                </>}
               </>}
             </div>
           )}
